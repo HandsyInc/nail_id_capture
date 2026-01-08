@@ -9,6 +9,7 @@ import PhotoPreview from '@/components/PhotoPreview';
 import CaptureConfirm from '@/components/CaptureConfirm';
 import SuccessScreen from '@/components/SuccessScreen';
 import ErrorScreen from '@/components/ErrorScreen';
+import ProcessingScreen from '@/components/ProcessingScreen';
 import ProgressIndicator from '@/components/ProgressIndicator';
 
 export type ScreenName = 
@@ -21,6 +22,7 @@ export type ScreenName =
   | 'photo_4_thumb_oblique'
   | 'photo_preview'
   | 'capture_confirm'
+  | 'processing'
   | 'success'
   | 'error';
 
@@ -60,6 +62,7 @@ export default function Home() {
       capture_rules: undefined,
       camera_rules: undefined,
       capture_confirm: undefined,
+      processing: undefined,
       success: undefined,
       error: undefined,
     };
@@ -124,8 +127,13 @@ export default function Home() {
   };
 
   const handleSubmit = () => {
-    // Placeholder for Week 2 - API integration
-    setCurrentScreen('success');
+    // Show processing state
+    setCurrentScreen('processing');
+    
+    // Simulate processing delay (mockup - no actual API call)
+    setTimeout(() => {
+      setCurrentScreen('success');
+    }, 3000); // 3 second delay for demo
   };
 
   const renderScreen = () => {
@@ -158,6 +166,8 @@ export default function Home() {
         );
       case 'capture_confirm':
         return <CaptureConfirm photos={photos} onSubmit={handleSubmit} />;
+      case 'processing':
+        return <ProcessingScreen />;
       case 'success':
         return <SuccessScreen />;
       case 'error':
