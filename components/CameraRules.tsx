@@ -11,15 +11,15 @@ export default function CameraRules({ onNext }: CameraRulesProps) {
         <ul className="space-y-2 text-gray-300 text-sm">
           <li className="flex items-start gap-2">
             <span className="text-blue-400 mt-0.5">•</span>
-            <span>Use your phone's built-in camera</span>
+            <span>Use your phone&apos;s built-in camera</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-400 mt-0.5">•</span>
-            <span>Don't use filters or screenshots</span>
+            <span>Don&apos;t use filters or screenshots</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-400 mt-0.5">•</span>
-            <span>Don't use social apps</span>
+            <span>Don&apos;t use social apps</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-400 mt-0.5">•</span>

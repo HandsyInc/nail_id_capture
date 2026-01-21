@@ -15,7 +15,7 @@ export default function CaptureRules({ onNext }: CaptureRulesProps) {
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-400 mt-0.5">•</span>
-            <span>Use your phone's regular camera (no filters)</span>
+            <span>Use your phone&apos;s regular camera (no filters)</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-400 mt-0.5">•</span>
@@ -23,7 +23,7 @@ export default function CaptureRules({ onNext }: CaptureRulesProps) {
           </li>
           <li className="flex items-start gap-2">
             <span className="text-blue-400 mt-0.5">•</span>
-            <span>Keep your hand relaxed — don't press or squeeze</span>
+            <span>Keep your hand relaxed — don&apos;t press or squeeze</span>
           </li>
         </ul>
       </div>

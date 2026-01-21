@@ -1,8 +1,14 @@
 interface CaptureEntryProps {
-  onNext: () => void;
+  onStart: () => void;
+  isStarting?: boolean;
+  errorMessage?: string | null;
 }
 
-export default function CaptureEntry({ onNext }: CaptureEntryProps) {
+export default function CaptureEntry({
+  onStart,
+  isStarting = false,
+  errorMessage,
+}: CaptureEntryProps) {
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="text-center space-y-2">
@@ -16,7 +22,7 @@ export default function CaptureEntry({ onNext }: CaptureEntryProps) {
       
       <div className="space-y-2 text-gray-300 text-base leading-relaxed">
         <p className="text-center">
-          You'll take a few photos to create your Nail ID — a one-time scan for perfect fit.
+          You&apos;ll take a few photos to create your Nail ID — a one-time scan for perfect fit.
         </p>
         <div className="flex items-center justify-center gap-2 text-gray-400 text-sm">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -27,11 +33,32 @@ export default function CaptureEntry({ onNext }: CaptureEntryProps) {
         <p className="text-center text-gray-400 text-sm">Small retakes are normal.</p>
       </div>
 
+      {errorMessage && (
+        <div className="bg-red-900/30 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg backdrop-blur-sm text-sm">
+          {errorMessage}
+        </div>
+      )}
+
       <button
-        onClick={onNext}
-        className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2.5 px-4 rounded-lg font-semibold text-base hover:from-blue-500 hover:to-cyan-500 transition-all duration-200 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transform hover:scale-[1.02] active:scale-[0.98]"
+        onClick={onStart}
+        disabled={isStarting}
+        className={`w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2.5 px-4 rounded-lg font-semibold text-base transition-all duration-200 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transform flex items-center justify-center gap-2 ${
+          isStarting
+            ? 'opacity-70 cursor-not-allowed'
+            : 'hover:from-blue-500 hover:to-cyan-500 hover:scale-[1.02] active:scale-[0.98]'
+        }`}
       >
-        Start
+        {isStarting && (
+          <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+            />
+          </svg>
+        )}
+        {isStarting ? 'Starting…' : 'Start Scan'}
       </button>
     </div>
   );

@@ -15,13 +15,13 @@ export default function SuccessScreen() {
       <div>
         <h1 className="text-3xl sm:text-4xl font-bold text-gradient mb-2">Success!</h1>
         <p className="text-base text-gray-300 max-w-md mx-auto">
-          Your photos have been submitted successfully. We're processing your Nail ID.
+          Your photos have been submitted successfully. We&apos;re processing your Nail ID.
         </p>
       </div>
 
       <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50 max-w-md mx-auto">
         <p className="text-xs text-gray-400">
-          You'll receive a confirmation email shortly.
+          You&apos;ll receive a confirmation email shortly.
         </p>
       </div>
     </div>
