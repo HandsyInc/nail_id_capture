@@ -12,15 +12,30 @@ import ErrorScreen from '@/components/ErrorScreen';
 import ProcessingScreen from '@/components/ProcessingScreen';
 import ProgressIndicator from '@/components/ProgressIndicator';
 
-export type ScreenName = 
+export type ScreenName =
   | 'capture_entry'
   | 'capture_rules'
   | 'camera_rules'
-  | 'photo_1_top_down'
-  | 'photo_2_forward_lean'
-  | 'photo_3_thumb_top_down'
-  | 'photo_4_thumb_oblique'
-  | 'photo_preview'
+  | 'photo_left_thumb'
+  | 'photo_preview_left_thumb'
+  | 'photo_left_index'
+  | 'photo_preview_left_index'
+  | 'photo_left_middle'
+  | 'photo_preview_left_middle'
+  | 'photo_left_ring'
+  | 'photo_preview_left_ring'
+  | 'photo_left_pinky'
+  | 'photo_preview_left_pinky'
+  | 'photo_right_thumb'
+  | 'photo_preview_right_thumb'
+  | 'photo_right_index'
+  | 'photo_preview_right_index'
+  | 'photo_right_middle'
+  | 'photo_preview_right_middle'
+  | 'photo_right_ring'
+  | 'photo_preview_right_ring'
+  | 'photo_right_pinky'
+  | 'photo_preview_right_pinky'
   | 'capture_confirm'
   | 'processing'
   | 'success'
@@ -151,32 +166,46 @@ function dataUrlToBase64(dataUrl: string): string {
 }
 
 function getUploadMetadataForPhotoIndex(photoIndex: number) {
-  const base = {
-    hand: 'right',
-  };
-
   switch (photoIndex) {
     case 0:
-      return { ...base, image_type: 'top_down', finger: 'index' };
+      return { hand: 'left', image_type: 'top_down', finger: 'thumb' };
     case 1:
-      return { ...base, image_type: 'slight_angle', finger: 'index' };
+      return { hand: 'left', image_type: 'top_down', finger: 'index' };
     case 2:
-      return { ...base, image_type: 'thumb_top_down', finger: 'thumb' };
+      return { hand: 'left', image_type: 'top_down', finger: 'middle' };
     case 3:
-      return { ...base, image_type: 'thumb_angle', finger: 'thumb' };
+      return { hand: 'left', image_type: 'top_down', finger: 'ring' };
+    case 4:
+      return { hand: 'left', image_type: 'top_down', finger: 'pinky' };
+    case 5:
+      return { hand: 'right', image_type: 'top_down', finger: 'thumb' };
+    case 6:
+      return { hand: 'right', image_type: 'top_down', finger: 'index' };
+    case 7:
+      return { hand: 'right', image_type: 'top_down', finger: 'middle' };
+    case 8:
+      return { hand: 'right', image_type: 'top_down', finger: 'ring' };
+    case 9:
+      return { hand: 'right', image_type: 'top_down', finger: 'pinky' };
     default:
-      return { ...base, image_type: 'unknown', finger: 'index' };
+      return { hand: 'left', image_type: 'top_down', finger: 'thumb' };
   }
 }
 
 export default function Home() {
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('capture_entry');
   const [photos, setPhotos] = useState<PhotoData[]>([
-    { file: null, preview: null, imageId: null },
-    { file: null, preview: null, imageId: null },
-    { file: null, preview: null, imageId: null },
-    { file: null, preview: null, imageId: null },
-  ]);
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+  { file: null, preview: null, imageId: null },
+]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [previewPhotoIndex, setPreviewPhotoIndex] = useState<number | null>(null);
 
@@ -206,10 +235,10 @@ export default function Home() {
     }
   }, [projectId]);
 
-  const showProgress = currentScreen.startsWith('photo_') || currentScreen === 'photo_preview';
+  const showProgress = currentScreen.startsWith('photo_');
 
   const getCurrentPhotoNumber = () => {
-    if (currentScreen === 'photo_preview' && previewPhotoIndex !== null) {
+    if (currentScreen.startsWith('photo_preview_') && previewPhotoIndex !== null) {
       return previewPhotoIndex + 1;
     }
     return currentPhotoIndex + 1;
@@ -217,19 +246,46 @@ export default function Home() {
 
   const getHeaderText = (): string | undefined => {
     const headers: Record<ScreenName, string | undefined> = {
-      photo_1_top_down: 'Top-Down',
-      photo_2_forward_lean: 'Slight Angle',
-      photo_3_thumb_top_down: 'Thumb',
-      photo_4_thumb_oblique: 'Thumb Angle',
-      photo_preview: uploadSuccess ? 'Upload Success' : 'Review photo',
       capture_entry: undefined,
       capture_rules: undefined,
       camera_rules: undefined,
+
+      photo_left_thumb: 'Left Thumb',
+      photo_preview_left_thumb: uploadSuccess ? 'Upload Success' : 'Review Left Thumb',
+
+      photo_left_index: 'Left Index',
+      photo_preview_left_index: uploadSuccess ? 'Upload Success' : 'Review Left Index',
+
+      photo_left_middle: 'Left Middle',
+      photo_preview_left_middle: uploadSuccess ? 'Upload Success' : 'Review Left Middle',
+
+      photo_left_ring: 'Left Ring',
+      photo_preview_left_ring: uploadSuccess ? 'Upload Success' : 'Review Left Ring',
+
+      photo_left_pinky: 'Left Pinky',
+      photo_preview_left_pinky: uploadSuccess ? 'Upload Success' : 'Review Left Pinky',
+
+      photo_right_thumb: 'Right Thumb',
+      photo_preview_right_thumb: uploadSuccess ? 'Upload Success' : 'Review Right Thumb',
+
+      photo_right_index: 'Right Index',
+      photo_preview_right_index: uploadSuccess ? 'Upload Success' : 'Review Right Index',
+
+      photo_right_middle: 'Right Middle',
+      photo_preview_right_middle: uploadSuccess ? 'Upload Success' : 'Review Right Middle',
+
+      photo_right_ring: 'Right Ring',
+      photo_preview_right_ring: uploadSuccess ? 'Upload Success' : 'Review Right Ring',
+
+      photo_right_pinky: 'Right Pinky',
+      photo_preview_right_pinky: uploadSuccess ? 'Upload Success' : 'Review Right Pinky',
+
       capture_confirm: undefined,
       processing: undefined,
       success: undefined,
       error: undefined,
     };
+
     return headers[currentScreen];
   };
 
@@ -240,12 +296,21 @@ export default function Home() {
       'capture_entry',
       'capture_rules',
       'camera_rules',
-      'photo_1_top_down',
-      'photo_2_forward_lean',
-      'photo_3_thumb_top_down',
-      'photo_4_thumb_oblique',
+
+      'photo_left_thumb',
+      'photo_left_index',
+      'photo_left_middle',
+      'photo_left_ring',
+      'photo_left_pinky',
+
+      'photo_right_thumb',
+      'photo_right_index',
+      'photo_right_middle',
+      'photo_right_ring',
+      'photo_right_pinky',
+
       'capture_confirm',
-    ];
+  ];
     
     const currentIndex = flow.indexOf(currentScreen);
     if (currentIndex < flow.length - 1) {
@@ -291,6 +356,12 @@ export default function Home() {
         { file: null, preview: null, imageId: null },
         { file: null, preview: null, imageId: null },
         { file: null, preview: null, imageId: null },
+        { file: null, preview: null, imageId: null },
+        { file: null, preview: null, imageId: null },
+        { file: null, preview: null, imageId: null },
+        { file: null, preview: null, imageId: null },
+        { file: null, preview: null, imageId: null },
+        { file: null, preview: null, imageId: null },
       ]);
       setCurrentPhotoIndex(0);
       setPreviewPhotoIndex(null);
@@ -303,14 +374,29 @@ export default function Home() {
     }
   };
 
-  const handlePhotoTaken = (file: File, preview: string) => {
-    const newPhotos = [...photos];
-    newPhotos[currentPhotoIndex] = { file, preview, imageId: null };
-    setPhotos(newPhotos);
-    setPreviewPhotoIndex(currentPhotoIndex);
-    setUploadSuccess(false);
-    setCurrentScreen('photo_preview');
-  };
+const handlePhotoTaken = (file: File, preview: string) => {
+  const newPhotos = [...photos];
+  newPhotos[currentPhotoIndex] = { file, preview, imageId: null };
+
+  setPhotos(newPhotos);
+  setPreviewPhotoIndex(currentPhotoIndex);
+  setUploadSuccess(false);
+
+  const previewScreens: ScreenName[] = [
+    'photo_preview_left_thumb',
+    'photo_preview_left_index',
+    'photo_preview_left_middle',
+    'photo_preview_left_ring',
+    'photo_preview_left_pinky',
+    'photo_preview_right_thumb',
+    'photo_preview_right_index',
+    'photo_preview_right_middle',
+    'photo_preview_right_ring',
+    'photo_preview_right_pinky',
+  ];
+
+  setCurrentScreen(previewScreens[currentPhotoIndex]);
+};
 
   const handleUsePhoto = async () => {
     if (previewPhotoIndex !== null) {
@@ -383,17 +469,27 @@ export default function Home() {
         // Auto-continue after 2.5 seconds
         setTimeout(() => {
           // Move to next photo or confirmation
-          if (previewPhotoIndex < 3) {
-            setCurrentPhotoIndex(previewPhotoIndex + 1);
-            const nextPhotoScreens: ScreenName[] = [
-              'photo_2_forward_lean',
-              'photo_3_thumb_top_down',
-              'photo_4_thumb_oblique',
-            ];
-            setCurrentScreen(nextPhotoScreens[previewPhotoIndex]);
-          } else {
-            setCurrentScreen('capture_confirm');
-          }
+         if (previewPhotoIndex < 9) {
+        const nextPhotoIndex = previewPhotoIndex + 1;
+        setCurrentPhotoIndex(nextPhotoIndex);
+
+        const nextPhotoScreens: ScreenName[] = [
+          'photo_left_thumb',
+          'photo_left_index',
+          'photo_left_middle',
+          'photo_left_ring',
+          'photo_left_pinky',
+          'photo_right_thumb',
+          'photo_right_index',
+          'photo_right_middle',
+          'photo_right_ring',
+          'photo_right_pinky',
+  ];
+
+  setCurrentScreen(nextPhotoScreens[nextPhotoIndex]);
+} else {
+  setCurrentScreen('capture_confirm');
+}
           setPreviewPhotoIndex(null);
           setUploadSuccess(false);
         }, 2500);
@@ -410,11 +506,17 @@ export default function Home() {
       setUploadError(null);
       setUploadSuccess(false);
       const photoScreens: ScreenName[] = [
-        'photo_1_top_down',
-        'photo_2_forward_lean',
-        'photo_3_thumb_top_down',
-        'photo_4_thumb_oblique',
-      ];
+        'photo_left_thumb',
+        'photo_left_index',
+        'photo_left_middle',
+        'photo_left_ring',
+        'photo_left_pinky',
+        'photo_right_thumb',
+        'photo_right_index',
+        'photo_right_middle',
+        'photo_right_ring',
+        'photo_right_pinky',
+  ];
       setCurrentScreen(photoScreens[previewPhotoIndex]);
       setPreviewPhotoIndex(null);
     }
@@ -443,18 +545,33 @@ export default function Home() {
         return <CaptureRules onNext={handleNext} />;
       case 'camera_rules':
         return <CameraRules onNext={handleNext} />;
-      case 'photo_1_top_down':
-      case 'photo_2_forward_lean':
-      case 'photo_3_thumb_top_down':
-      case 'photo_4_thumb_oblique':
+      case 'photo_left_thumb':
+      case 'photo_left_index':
+      case 'photo_left_middle':
+      case 'photo_left_ring':
+      case 'photo_left_pinky':
+      case 'photo_right_thumb':
+      case 'photo_right_index':
+      case 'photo_right_middle':
+      case 'photo_right_ring':
+      case 'photo_right_pinky':
         return (
-          <PhotoCapture
-            screenName={currentScreen}
-            photoIndex={currentPhotoIndex}
-            onPhotoTaken={handlePhotoTaken}
-          />
-        );
-      case 'photo_preview':
+        <PhotoCapture
+          screenName={currentScreen}
+          photoIndex={currentPhotoIndex}
+          onPhotoTaken={handlePhotoTaken}
+        />
+      );
+      case 'photo_preview_left_thumb':
+      case 'photo_preview_left_index':
+      case 'photo_preview_left_middle':
+      case 'photo_preview_left_ring':
+      case 'photo_preview_left_pinky':
+      case 'photo_preview_right_thumb':
+      case 'photo_preview_right_index':
+      case 'photo_preview_right_middle':
+      case 'photo_preview_right_ring':
+      case 'photo_preview_right_pinky':
         return (
           <PhotoPreview
             photoIndex={previewPhotoIndex ?? 0}
@@ -484,7 +601,7 @@ export default function Home() {
       {showProgress && (
         <ProgressIndicator
           currentPhoto={getCurrentPhotoNumber()}
-          totalPhotos={4}
+          totalPhotos={10}
           header={getHeaderText()}
           isUploading={isUploading}
         />
