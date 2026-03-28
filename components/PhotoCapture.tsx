@@ -10,45 +10,125 @@ interface PhotoCaptureProps {
 }
 
 const photoConfigs = {
-  photo_1_top_down: {
-    header: 'Photo 1 of 4 — Top-Down',
+  photo_left_thumb: {
+    header: 'Photo 1 of 10 — Left Thumb',
     bodyCopy: [
-      'Rest your hand flat on a table',
-      'Fingers relaxed and slightly apart',
-      'Place a card next to your hand',
-      "Hold your phone directly above your hand in a top-down (bird's-eye) view",
+      'Place ONLY your left thumb on a white piece of paper',
+      'Let the rest of your hand hang off the edge of the table',
+      'Place a card vertically next to your finger',
+      "Hold your phone directly above your finger in a top-down (bird’s-eye) view",
+      'Tap your nail on screen to focus before taking the photo'
     ],
-    helperText: 'Your hand and the full card should fill most of the screen.',
+    helperText: 'The white paper should fill the frame. Keep the card fully visible.'
   },
-  photo_2_forward_lean: {
-    header: 'Photo 2 of 4 — Slight Angle',
+
+  photo_left_index: {
+    header: 'Photo 2 of 10 — Left Index',
     bodyCopy: [
-      'Keep your hand in the same position',
-      'Gently lean your phone toward your fingertips',
-      'Keep the card visible',
+      'Place ONLY your index finger on the paper',
+      'Keep finger relaxed — do not press down',
+      'Place the card vertically next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus on the nail'
     ],
-    helperText: "If it feels subtle, you're doing it right.",
+    helperText: 'Keep the camera parallel to the paper — do not tilt.'
   },
-  photo_3_thumb_top_down: {
-    header: 'Photo 3 of 4 — Thumb',
+
+  photo_left_middle: {
+    header: 'Photo 3 of 10 — Left Middle',
     bodyCopy: [
-      'Keep your hand flat on the table',
-      'Slide your phone to the side so your thumb is centered',
-      'Keep the same distance as previous photos',
-      'Make sure the card is still visible',
+      'Place ONLY your middle finger on the paper',
+      'Let other fingers hang off the edge',
+      'Keep the card vertical next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus on the nail'
     ],
-    helperText: 'Keep your hand still — only move your phone sideways.',
+    helperText: 'Avoid shadows and keep lighting even.'
   },
-  photo_4_thumb_oblique: {
-    header: 'Photo 4 of 4 — Thumb Angle',
+
+  photo_left_ring: {
+    header: 'Photo 4 of 10 — Left Ring',
     bodyCopy: [
-      'Gently curl your fingers into a light, relaxed fist',
-      'Rotate your hand outward so the thumb faces the camera',
-      'Keep your thumb gently supported and relaxed, resting it on your index finger',
-      'Make sure the card is visible',
+      'Place ONLY your ring finger on the paper',
+      'Keep finger relaxed — do not press',
+      'Place the card vertically next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus on the nail'
     ],
-    helperText: undefined,
+    helperText: 'Keep the camera flat and steady — this finger can be tricky.'
   },
+
+  photo_left_pinky: {
+    header: 'Photo 5 of 10 — Left Pinky',
+    bodyCopy: [
+      'Place ONLY your pinky on the paper',
+      'Keep the finger straight and relaxed',
+      'Place the card vertically next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus before capturing'
+    ],
+    helperText: 'Make sure the nail is sharp and clearly visible.'
+  },
+
+  photo_right_thumb: {
+    header: 'Photo 6 of 10 — Right Thumb',
+    bodyCopy: [
+      'Switch hands — place ONLY your right thumb on the paper',
+      'Let the rest of your hand hang off the edge',
+      'Place the card vertically next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus on the nail'
+    ],
+    helperText: 'Keep the camera parallel to the paper — do not tilt.'
+  },
+
+  photo_right_index: {
+    header: 'Photo 7 of 10 — Right Index',
+    bodyCopy: [
+      'Place ONLY your index finger on the paper',
+      'Keep finger relaxed',
+      'Place the card vertically next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus'
+    ],
+    helperText: 'Match the positioning from your left hand.'
+  },
+
+  photo_right_middle: {
+    header: 'Photo 8 of 10 — Right Middle',
+    bodyCopy: [
+      'Place ONLY your middle finger on the paper',
+      'Keep lighting even',
+      'Place the card vertically next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus'
+    ],
+    helperText: 'Keep the camera flat — avoid tilting.'
+  },
+
+  photo_right_ring: {
+    header: 'Photo 9 of 10 — Right Ring',
+    bodyCopy: [
+      'Place ONLY your ring finger on the paper',
+      'Relax finger — do not press',
+      'Place the card vertically next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus'
+    ],
+    helperText: 'Take a moment here — accuracy matters.'
+  },
+
+  photo_right_pinky: {
+    header: 'Photo 10 of 10 — Right Pinky',
+    bodyCopy: [
+      'Place ONLY your pinky on the paper',
+      'Keep finger straight',
+      'Place the card vertically next to your finger',
+      "Hold your phone directly above your finger (top-down view)",
+      'Tap to focus before capture'
+    ],
+    helperText: 'Last one — make sure it’s sharp and clear.'
+  }
 };
 
 export default function PhotoCapture({
