@@ -99,11 +99,7 @@ function generateUUID() {
 }
 
 function getApiBase(): string {
-  const base = process.env.NEXT_PUBLIC_API_ENDPOINT;
-  if (!base) {
-    throw new Error('API endpoint is not configured. Set NEXT_PUBLIC_API_ENDPOINT.');
-  }
-  return base;
+  return 'https://uw-handsy-107520900999.us-central1.run.app';
 }
 
 async function readJsonSafely(res: Response): Promise<any> {
