@@ -99,9 +99,9 @@ function generateUUID() {
 }
 
 function getApiBase(): string {
-  const base = process.env.API_ENDPOINT;
+  const base = process.env.NEXT_PUBLIC_API_ENDPOINT;
   if (!base) {
-    throw new Error('API endpoint is not configured. Set API_ENDPOINT in your .env file.');
+    throw new Error('API endpoint is not configured. Set NEXT_PUBLIC_API_ENDPOINT.');
   }
   return base;
 }
