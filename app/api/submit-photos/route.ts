@@ -104,11 +104,8 @@ Photos attached.`,
     });
 
     if (internalResult.error) {
-      return NextResponse.json(
-        { step: "internal email", error: JSON.stringify(internalResult.error) },
-        { status: 500 }
-      );
-    }
+  console.error("Internal email failed:", internalResult.error);
+}
 
     return NextResponse.json({
       success: true,
