@@ -530,15 +530,19 @@ const handlePhotoTaken = (file: File, preview: string) => {
 
   try {
     const cleanedPhotos = photos.map((p: any) => ({
-      ...p,
-      data:
-        p.data?.split(',')[1] ??
-        p.dataUrl?.split(',')[1] ??
-        p.dataURL?.split(',')[1] ??
-        p.data ??
-        p.dataUrl ??
-        p.dataURL,
-    });
+  ...p,
+  data: (
+    p.data ||
+    p.dataUrl ||
+    p.dataURL ||
+    ''
+  ).split(',')[1] || (
+    p.data ||
+    p.dataUrl ||
+    p.dataURL ||
+    ''
+  ),
+}));
 
     const response = await fetch('/api/submit-photos', {
       method: 'POST',
