@@ -538,7 +538,7 @@ const handlePhotoTaken = (file: File, preview: string) => {
         p.data ??
         p.dataUrl ??
         p.dataURL,
-    }));
+    });
 
     const response = await fetch('/api/submit-photos', {
       method: 'POST',
