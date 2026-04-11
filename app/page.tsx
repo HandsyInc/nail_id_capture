@@ -495,12 +495,11 @@ const handlePhotoTaken = (file: File, preview: string) => {
           setPreviewPhotoIndex(null);
           setUploadSuccess(false);
         }, 2500);
-      } catch (err: any) {
-        setUploadError(err?.message ?? 'Failed to upload photo.');
-      } finally {
-        setIsUploading(false);
-      }
-    }
+      } catch (error: any) {
+  console.error('Submission failed:', error);
+  alert(`Submission failed: ${error?.message || error}`);
+  setCurrentScreen('capture_confirm');
+}
   };
 
   const handleRetakePhoto = () => {
@@ -551,13 +550,14 @@ const handlePhotoTaken = (file: File, preview: string) => {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to submit photos');
-    }
+  const errorText = await response.text();
+  throw new Error(`Failed to submit photos: ${errorText}`);
+}
 
     setCurrentScreen('success');
   } catch (error) {
     console.error('Submission failed:', error);
-    alert('Something went wrong sending the submission. Please try again.');
+    alert(`Submission failed: ${error?.message || error}`);
     setCurrentScreen('capture_confirm');
   }
 };
