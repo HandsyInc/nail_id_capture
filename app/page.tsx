@@ -530,13 +530,23 @@ const handlePhotoTaken = (file: File, preview: string) => {
   setCurrentScreen('processing');
 
   try {
+    const cleanedPhotos = photos.map((p: any) => ({
+  ...p,
+  data:
+    p.data?.split(',')[1] ??
+    p.dataUrl?.split(',')[1] ??
+    p.dataURL?.split(',')[1] ??
+    p.data ??
+    p.dataUrl ??
+    p.dataURL,
+}));
     const response = await fetch('/api/submit-photos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name,
         email,
-        photos,
+        photos: cleanedPhotos,
       }),
     });
 
