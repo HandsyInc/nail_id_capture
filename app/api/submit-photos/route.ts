@@ -92,7 +92,7 @@ We’ll be in touch shortly.
     // ✅ INTERNAL EMAIL
     const internalResult = await resend.emails.send({
       from: `Handsy <${process.env.HANDSY_FROM_EMAIL!}>`,
-      to: [process.env.HANDSY_NOTIFY_EMAIL!],
+      to: "hello@gethandsy.com",
       subject: `New Handsy submission — ${name} (${nailId})`,
       text: `NAILID: ${nailId}
 
