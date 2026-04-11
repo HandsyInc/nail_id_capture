@@ -530,15 +530,16 @@ const handlePhotoTaken = (file: File, preview: string) => {
 
   try {
     const cleanedPhotos = photos.map((p: any) => ({
-  ...p,
-  data:
-    p.data?.split(',')[1] ??
-    p.dataUrl?.split(',')[1] ??
-    p.dataURL?.split(',')[1] ??
-    p.data ??
-    p.dataUrl ??
-    p.dataURL,
-}));
+      ...p,
+      data:
+        p.data?.split(',')[1] ??
+        p.dataUrl?.split(',')[1] ??
+        p.dataURL?.split(',')[1] ??
+        p.data ??
+        p.dataUrl ??
+        p.dataURL,
+    }));
+
     const response = await fetch('/api/submit-photos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -550,12 +551,12 @@ const handlePhotoTaken = (file: File, preview: string) => {
     });
 
     if (!response.ok) {
-  const errorText = await response.text();
-  throw new Error(`Failed to submit photos: ${errorText}`);
-}
+      const errorText = await response.text();
+      throw new Error(`Failed to submit photos: ${errorText}`);
+    }
 
     setCurrentScreen('success');
-  } catch (error) {
+  } catch (error: any) {
     console.error('Submission failed:', error);
     alert(`Submission failed: ${error?.message || error}`);
     setCurrentScreen('capture_confirm');
