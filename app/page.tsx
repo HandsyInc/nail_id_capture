@@ -584,7 +584,9 @@ setUploadSuccess(false);
     formData.append('name', name);
     formData.append('email', email);
 
-    for (let index = 0; index < photos.length; index++) {
+  let totalCompressedBytes = 0;
+
+  for (let index = 0; index < photos.length; index++) {
       const photo = photos[index];
 
       if (!photo.file) {
@@ -592,9 +594,11 @@ setUploadSuccess(false);
       }
 
       const compressedFile = await compressImageFile(photo.file, 1200, 0.72);
+      totalCompressedBytes += compressedFile.size;
       formData.append('photos', compressedFile, compressedFile.name);
     }
 
+    alert(`Total compressed payload: ${Math.round(totalCompressedBytes / 1024)} KB`);
     const response = await fetch('/api/submit-photos', {
       method: 'POST',
       body: formData,
