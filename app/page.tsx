@@ -191,8 +191,8 @@ function getUploadMetadataForPhotoIndex(photoIndex: number) {
 
 async function compressImageFile(
   file: File,
-  maxWidth = 1200,
-  quality = 0.72
+  maxWidth = 1000,
+  quality = 0.6
 ): Promise<File> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();

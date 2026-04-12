@@ -340,11 +340,44 @@ export default function PhotoCapture({
 
     try {
       // Set canvas dimensions to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      const videoWidth = video.videoWidth;
+const videoHeight = video.videoHeight;
 
-      // Draw video frame to canvas
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+// Paper preview (8.5:11)
+const previewAspect = 8.5 / 11;
+
+let sourceX = 0;
+let sourceY = 0;
+let sourceWidth = videoWidth;
+let sourceHeight = videoHeight;
+
+const videoAspect = videoWidth / videoHeight;
+
+if (videoAspect > previewAspect) {
+  // Video is wider → crop left/right
+  sourceWidth = videoHeight * previewAspect;
+  sourceX = (videoWidth - sourceWidth) / 2;
+} else if (videoAspect < previewAspect) {
+  // Video is taller → crop top/bottom
+  sourceHeight = videoWidth / previewAspect;
+  sourceY = (videoHeight - sourceHeight) / 2;
+}
+
+// Output is square
+canvas.width = Math.round(sourceWidth);
+canvas.height = Math.round(sourceHeight);
+
+context.drawImage(
+  video,
+  sourceX,
+  sourceY,
+  sourceWidth,
+  sourceHeight,
+  0,
+  0,
+  canvas.width,
+  canvas.height
+);
 
       console.log('Photo captured - dimensions:', canvas.width, 'x', canvas.height);
 
@@ -456,7 +489,7 @@ export default function PhotoCapture({
       )}
 
       {/* Camera Preview - Always visible */}
-      <div className="relative w-full aspect-square bg-gray-900 rounded-xl overflow-hidden border-2 border-gray-700/50">
+      <div className="relative w-full aspect-[8.5/11] bg-gray-900 rounded-xl overflow-hidden border-2 border-gray-700/50">
         {/* Video element - always rendered, visible when camera is active */}
         <video
           ref={videoRef}
