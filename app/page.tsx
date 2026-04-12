@@ -684,22 +684,32 @@ setUploadSuccess(false);
         return (
     <div className="space-y-6 text-center">
       <h1 className="text-2xl font-bold text-gray-100">
-        Here’s exactly how your photo should look
+        Follow this setup for each photo
       </h1>
+
+      <ul className="space-y-3 text-gray-300 text-sm text-left list-disc pl-5">
+  <li>One finger at a time</li>
+  <li>Place the card flat on the paper, then position your finger beside it</li>
+  <li>Place one finger flat on the paper, right beside the card</li>
+  <li>
+  Let the other fingers hang off the edge of the table<br />
+  <span className="text-gray-400">
+    (only the finger being photographed should rest on the paper)
+  </span>
+</li>
+  <li>Hold your phone directly above your finger, parallel to the table (not tilted)</li>
+  <li>Make sure both your finger and the card are fully visible</li>
+  <li>
+    Adjust your distance so the white paper fills the entire frame, edge to edge<br />
+    <span className="text-gray-400">(this ensures a consistent capture distance)</span>
+  </li>
+</ul>
 
       <img
         src="/example.jpg"
         alt="Example nail photo"
         className="rounded-xl"
       />
-
-      <div className="space-y-2 text-gray-300 text-sm">
-        <p>• One finger at a time</p>
-        <p>• Place the card flat on the paper, right beside your finger</p>
-        <p>• Hold your phone directly above your finger, parallel to the table (not tilted)</p>
-        <p>• Make sure both your finger and the card are fully visible on screen</p>
-        <p>• Let the white paper fill the entire screen, edge to edge</p>
-      </div>
 
       <button
         onClick={() => setCurrentScreen('photo_left_thumb')}
