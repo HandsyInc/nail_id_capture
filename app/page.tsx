@@ -593,7 +593,7 @@ setUploadSuccess(false);
         throw new Error(`Missing file for photo ${index + 1}`);
       }
 
-      const compressedFile = await compressImageFile(photo.file, 1200, 0.72);
+      const compressedFile = await compressImageFile(photo.file, 1000, 0.6);
       totalCompressedBytes += compressedFile.size;
       formData.append('photos', compressedFile, compressedFile.name);
     }
