@@ -689,6 +689,7 @@ setUploadSuccess(false);
 
       <ul className="space-y-3 text-gray-300 text-sm text-left list-disc pl-5">
   <li>One finger at a time</li>
+  <li>Remove all jewelry from your fingers</li>
   <li>Place the card flat on the paper, then position your finger beside it</li>
   <li>Place one finger flat on the paper, right beside the card</li>
   <li>
