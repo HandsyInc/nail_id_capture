@@ -9,114 +9,73 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { name, email, photos } = await req.json();
+    const formData = await req.formData();
 
-    // ✅ 4-digit Nail ID
+    const name = String(formData.get('name') || '');
+    const email = String(formData.get('email') || '');
+    const photos = formData.getAll('photos') as unknown as File[];
+
     const nailId = `NAILID-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    if (!name || !email || !photos || !Array.isArray(photos) || photos.length === 0) {
-      return NextResponse.json({ error: "Missing data" }, { status: 400 });
+    if (!name || !email || photos.length === 0) {
+      return NextResponse.json({ error: 'Missing data' }, { status: 400 });
     }
 
-    console.log("Incoming photos count:", photos.length);
-    console.log("NAILID:", nailId);
+    console.log('Incoming photos count:', photos.length);
+    console.log('NAILID:', nailId);
 
     const orderedLabels = [
-      "left-thumb",
-      "left-index",
-      "left-middle",
-      "left-ring",
-      "left-pinky",
-      "right-thumb",
-      "right-index",
-      "right-middle",
-      "right-ring",
-      "right-pinky",
+      'left-thumb',
+      'left-index',
+      'left-middle',
+      'left-ring',
+      'left-pinky',
+      'right-thumb',
+      'right-index',
+      'right-middle',
+      'right-ring',
+      'right-pinky',
     ];
 
-    const attachments = photos.map((photo: any, i: number) => {
-      if (!photo?.preview || typeof photo.preview !== "string") {
-        throw new Error(`Photo ${i} is missing valid data`);
-      }
+    const attachments = await Promise.all(
+      photos.map(async (file: File, i: number) => {
+        const buffer = Buffer.from(await file.arrayBuffer());
 
-      const mimeMatch = photo.preview.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,/);
-      const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+        return {
+          filename: `${orderedLabels[i] || `photo-${i + 1}`}.jpg`,
+          content: buffer.toString('base64'),
+        };
+      })
+    );
 
-      const extension =
-        mimeType === "image/png"
-          ? "png"
-          : mimeType === "image/webp"
-          ? "webp"
-          : mimeType === "image/heic" || mimeType === "image/heif"
-          ? "heic"
-          : "jpg";
-
-      const parts = photo.preview.split(",");
-      const base64Data = parts.length > 1 ? parts[1] : parts[0];
-
-      if (!base64Data) {
-        throw new Error(`Photo ${i} has empty base64 data`);
-      }
-
-      const label = orderedLabels[i] || `photo-${i + 1}`;
-
-      return {
-        filename: `${nailId}-${label}.${extension}`,
-        content: base64Data,
-      };
-    });
-
-    console.log("Built attachments:", attachments.length);
-
-    // ✅ USER EMAIL
-    const userResult = await resend.emails.send({
-      from: `Handsy <${process.env.HANDSY_FROM_EMAIL!}>`,
-      to: [email],
-      subject: "We received your photos",
-      text: `Hi ${name},
-
-We received your photos and are creating your Nail ID.
-
-We’ll be in touch shortly.
-
-— Handsy Team`,
-    });
-
-    if (userResult.error) {
-      return NextResponse.json(
-        { step: "user email", error: JSON.stringify(userResult.error) },
-        { status: 500 }
-      );
-    }
-
-    // ✅ INTERNAL EMAIL
-    const internalResult = await resend.emails.send({
-      from: `Handsy <${process.env.HANDSY_FROM_EMAIL!}>`,
-      to: "hello@gethandsy.com",
-      subject: `New Handsy submission — ${name} (${nailId})`,
-      text: `NAILID: ${nailId}
-
-Name: ${name}
-Email: ${email}
-
-Photos attached.`,
+    await resend.emails.send({
+      from: process.env.HANDSY_FROM_EMAIL!,
+      to: process.env.HANDSY_NOTIFY_EMAIL!,
+      subject: `New Handsy Submission — ${nailId}`,
+      html: `
+        <p><strong>Nail ID:</strong> ${nailId}</p>
+        <p><strong>Name:</strong> ${name}</p>
+        <p><strong>Email:</strong> ${email}</p>
+        <p><strong>Photos:</strong> ${photos.length}</p>
+      `,
       attachments,
     });
 
-    if (internalResult.error) {
-  console.error("Internal email failed:", internalResult.error);
-}
-
-    return NextResponse.json({
-      success: true,
-      nailId,
-      photosCount: photos.length,
+    await resend.emails.send({
+      from: process.env.HANDSY_FROM_EMAIL!,
+      to: email,
+      subject: `We received your photos — ${nailId}`,
+      html: `
+        <p>Hi ${name},</p>
+        <p>Your photos were received successfully.</p>
+        <p><strong>Nail ID:</strong> ${nailId}</p>
+      `,
     });
-  } catch (err: any) {
-    console.error("submit-photos route error:", err);
-    return NextResponse.json(
-      { error: err?.message || "Failed to send emails" },
-      { status: 500 }
-    );
+
+    return NextResponse.json({ ok: true, nailId });
+
+  } catch (error) {
+    console.error('UPLOAD ERROR:', error);
+    return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

@@ -190,6 +190,7 @@ function getUploadMetadataForPhotoIndex(photoIndex: number) {
 }
 
 export default function Home() {
+  console.log('HOME COMPONENT IS RENDERING');
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('capture_entry');
 
   const [name, setName] = useState('')
@@ -500,7 +501,8 @@ const handlePhotoTaken = (file: File, preview: string) => {
   alert(`Submission failed: ${error?.message || error}`);
   setCurrentScreen('capture_confirm');
 }
-  };
+}
+};
 
   const handleRetakePhoto = () => {
     if (previewPhotoIndex !== null) {
@@ -530,29 +532,22 @@ const handlePhotoTaken = (file: File, preview: string) => {
 
   try {
     const cleanedPhotos = photos.map((p: any) => ({
-  ...p,
-  data: (
-    p.data ||
-    p.dataUrl ||
-    p.dataURL ||
-    ''
-  ).split(',')[1] || (
-    p.data ||
-    p.dataUrl ||
-    p.dataURL ||
-    ''
-  ),
+  file: p.file,
+  name: p.name,
 }));
 
-    const response = await fetch('/api/submit-photos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        email,
-        photos: cleanedPhotos,
-      }),
-    });
+    const formData = new FormData();
+formData.append('name', name);
+formData.append('email', email);
+
+cleanedPhotos.forEach((photo: any, index: number) => {
+  formData.append('photos', photo.file, photo.file?.name || `photo-${index + 1}.jpg`);
+});
+
+const response = await fetch('/api/submit-photos', {
+  method: 'POST',
+  body: formData,
+});
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -570,7 +565,13 @@ const handlePhotoTaken = (file: File, preview: string) => {
   const renderScreen = () => {
     switch (currentScreen) {
       case 'capture_entry':
-        return <CaptureEntry onStart={handleStart} isStarting={isStarting} errorMessage={startError} />;
+  return (
+    <CaptureEntry
+      onStart={handleStart}
+      isStarting={isStarting}
+      errorMessage={startError}
+    />
+  );
       case 'user_info':
         return (
       <div className="space-y-6 text-center">
@@ -702,25 +703,16 @@ const handlePhotoTaken = (file: File, preview: string) => {
         return <SuccessScreen />;
       case 'error':
         return <ErrorScreen onRetry={() => setCurrentScreen('capture_entry')} />;
-      default:
-        return <CaptureEntry onStart={handleStart} isStarting={isStarting} errorMessage={startError} />;
+            default:
+  return (
+    <CaptureEntry
+      onStart={handleStart}
+      isStarting={isStarting}
+      errorMessage={startError}
+    />
+  );
     }
   };
 
-  return (
-    <main className="min-h-screen">
-      {showProgress && (
-        <ProgressIndicator
-          currentPhoto={getCurrentPhotoNumber()}
-          totalPhotos={10}
-          header={getHeaderText()}
-          isUploading={isUploading}
-        />
-      )}
-      <div className="container mx-auto px-4 py-6 sm:py-8 max-w-2xl">
-        {renderScreen()}
-      </div>
-    </main>
-  );
+  return renderScreen();
 }
-
