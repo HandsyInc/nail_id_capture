@@ -189,6 +189,50 @@ function getUploadMetadataForPhotoIndex(photoIndex: number) {
   }
 }
 
+async function compressImageFile(
+  file: File,
+  maxWidth = 1200,
+  quality = 0.72
+): Promise<File> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Failed to read image file."));
+    reader.readAsDataURL(file);
+  });
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to load image for compression."));
+    image.src = dataUrl;
+  });
+
+  const scale = Math.min(1, maxWidth / img.width);
+  const targetWidth = Math.round(img.width * scale);
+  const targetHeight = Math.round(img.height * scale);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Failed to create canvas context.");
+
+  ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", quality);
+  });
+
+  if (!blob) throw new Error("Failed to compress image.");
+
+  const baseName = file.name.replace(/\.[^.]+$/, "");
+  return new File([blob], `${baseName}.jpg`, {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
+}
 export default function Home() {
   console.log('HOME COMPONENT IS RENDERING');
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('capture_entry');
@@ -536,23 +580,25 @@ setUploadSuccess(false);
   setCurrentScreen('processing');
 
   try {
-    const cleanedPhotos = photos.map((p: any) => ({
-  file: p.file,
-  name: p.name,
-}));
-
     const formData = new FormData();
-formData.append('name', name);
-formData.append('email', email);
+    formData.append('name', name);
+    formData.append('email', email);
 
-cleanedPhotos.forEach((photo: any, index: number) => {
-  formData.append('photos', photo.file, photo.file?.name || `photo-${index + 1}.jpg`);
-});
+    for (let index = 0; index < photos.length; index++) {
+      const photo = photos[index];
 
-const response = await fetch('/api/submit-photos', {
-  method: 'POST',
-  body: formData,
-});
+      if (!photo.file) {
+        throw new Error(`Missing file for photo ${index + 1}`);
+      }
+
+      const compressedFile = await compressImageFile(photo.file, 1200, 0.72);
+      formData.append('photos', compressedFile, compressedFile.name);
+    }
+
+    const response = await fetch('/api/submit-photos', {
+      method: 'POST',
+      body: formData,
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
