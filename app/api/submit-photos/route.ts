@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     await resend.emails.send({
       from: process.env.HANDSY_FROM_EMAIL!,
-      to: process.env.HANDSY_NOTIFY_EMAIL!,
+      to: 'hello@gethandsy.com',
       subject: `New Handsy Submission — ${nailId}`,
       html: `
         <p><strong>Nail ID:</strong> ${nailId}</p>
