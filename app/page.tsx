@@ -473,33 +473,38 @@ const handlePhotoTaken = (file: File, preview: string) => {
         setTimeout(() => {
           // Move to next photo or confirmation
          if (previewPhotoIndex < 9) {
-        const nextPhotoIndex = previewPhotoIndex + 1;
-        setCurrentPhotoIndex(nextPhotoIndex);
+  const nextPhotoIndex = previewPhotoIndex + 1;
+  setCurrentPhotoIndex(nextPhotoIndex);
 
-        const nextPhotoScreens: ScreenName[] = [
-          'photo_left_thumb',
-          'photo_left_index',
-          'photo_left_middle',
-          'photo_left_ring',
-          'photo_left_pinky',
-          'photo_right_thumb',
-          'photo_right_index',
-          'photo_right_middle',
-          'photo_right_ring',
-          'photo_right_pinky',
+  const nextPhotoScreens: ScreenName[] = [
+    'photo_left_thumb',
+    'photo_left_index',
+    'photo_left_middle',
+    'photo_left_ring',
+    'photo_left_pinky',
+    'photo_right_thumb',
+    'photo_right_index',
+    'photo_right_middle',
+    'photo_right_ring',
+    'photo_right_pinky',
   ];
 
+  setPreviewPhotoIndex(null);
+  setIsUploading(false);
   setCurrentScreen(nextPhotoScreens[nextPhotoIndex]);
 } else {
+  setPreviewPhotoIndex(null);
+  setIsUploading(false);
   setCurrentScreen('capture_confirm');
 }
-          setPreviewPhotoIndex(null);
-          setUploadSuccess(false);
+setUploadSuccess(false);
         }, 2500);
       } catch (error: any) {
   console.error('Submission failed:', error);
   alert(`Submission failed: ${error?.message || error}`);
   setCurrentScreen('capture_confirm');
+} finally {
+  setIsUploading(false);
 }
 }
 };
