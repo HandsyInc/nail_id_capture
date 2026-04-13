@@ -353,30 +353,28 @@ let sourceHeight = videoHeight;
 
 const videoAspect = videoWidth / videoHeight;
 
-if (videoAspect > previewAspect) {
-  // Video is wider → crop left/right
-  sourceWidth = videoHeight * previewAspect;
-  sourceX = (videoWidth - sourceWidth) / 2;
-} else if (videoAspect < previewAspect) {
-  // Video is taller → crop top/bottom
-  sourceHeight = videoWidth / previewAspect;
-  sourceY = (videoHeight - sourceHeight) / 2;
-}
+// if (videoAspect > previewAspect) {
+//   sourceWidth = videoHeight * previewAspect;
+//   sourceX = (videoWidth - sourceWidth) / 2;
+// } else if (videoAspect < previewAspect) {
+//   sourceHeight = videoWidth / previewAspect;
+//   sourceY = (videoHeight - sourceHeight) / 2;
+// }
 
 // Output is square
-canvas.width = Math.round(sourceWidth);
-canvas.height = Math.round(sourceHeight);
+canvas.width = videoWidth;
+canvas.height = videoHeight;
 
 context.drawImage(
   video,
-  sourceX,
-  sourceY,
-  sourceWidth,
-  sourceHeight,
   0,
   0,
-  canvas.width,
-  canvas.height
+  videoWidth,
+  videoHeight,
+  0,
+  0,
+  videoWidth,
+  videoHeight
 );
 
       console.log('Photo captured - dimensions:', canvas.width, 'x', canvas.height);
