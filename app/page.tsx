@@ -235,7 +235,7 @@ async function compressImageFile(
 }
 export default function Home() {
   console.log('HOME COMPONENT IS RENDERING');
-  const MAINTENANCE_MODE = true;
+  const MAINTENANCE_MODE = false;
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('capture_entry');
 
   const [name, setName] = useState('')
