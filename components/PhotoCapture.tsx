@@ -169,7 +169,8 @@ export default function PhotoCapture({
   }, [screenName, photoIndex]);
 
   const startCamera = async () => {
-      return;
+      setCameraSupported(false);
+  return;
       
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCameraSupported(false);
@@ -183,11 +184,12 @@ export default function PhotoCapture({
       setHasRequestedPermission(true);
       
       // Stop any existing stream first
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+      const currentStream = streamRef.current;
+currentStream?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+streamRef.current = null;
         streamRef.current = null;
       }
-      
+    
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment', // Use back camera on mobile

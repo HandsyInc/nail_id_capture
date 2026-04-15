@@ -234,6 +234,26 @@ async function compressImageFile(
   });
 }
 export default function Home() {
+ const [isTester, setIsTester] = useState(false);
+
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('test') === 'true') {
+    setIsTester(true);
+  }
+}, []);
+
+if (!isTester) {
+  return (
+    <main style={{ padding: '40px', textAlign: 'center' }}>
+      <h1>Handsy is being updated</h1>
+      <p>
+        We’re making a quick calibration update to improve sizing accuracy.
+        Please check back shortly.
+      </p>
+    </main>
+  );
+} 
   console.log('HOME COMPONENT IS RENDERING');
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('capture_entry');
 
@@ -731,12 +751,8 @@ setUploadSuccess(false);
       case 'photo_right_ring':
       case 'photo_right_pinky':
         return (
-        <PhotoCapture
-          screenName={currentScreen}
-          photoIndex={currentPhotoIndex}
-          onPhotoTaken={handlePhotoTaken}
-        />
-      );
+  <div>Camera temporarily disabled</div>
+);
       case 'photo_preview_left_thumb':
       case 'photo_preview_left_index':
       case 'photo_preview_left_middle':
