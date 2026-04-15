@@ -11,7 +11,7 @@ interface PhotoCaptureProps {
 
 const photoConfigs = {
   photo_left_thumb: {
-    header: 'Photo 1 of 10 — Left Thumb',
+    header: 'LEFT THUMB',
     bodyCopy: [
       'Place ONLY your left thumb on a white piece of paper',
       'Let the rest of your hand hang off the edge of the table',
@@ -23,7 +23,7 @@ const photoConfigs = {
   },
 
   photo_left_index: {
-    header: 'Photo 2 of 10 — Left Index',
+    header: 'LEFT INDEX',
     bodyCopy: [
       'Place ONLY your index finger on the paper',
       'Keep finger relaxed — do not press down',
@@ -35,7 +35,7 @@ const photoConfigs = {
   },
 
   photo_left_middle: {
-    header: 'Photo 3 of 10 — Left Middle',
+    header: 'LEFT MIDDLE',
     bodyCopy: [
       'Place ONLY your middle finger on the paper',
       'Let other fingers hang off the edge',
@@ -47,7 +47,7 @@ const photoConfigs = {
   },
 
   photo_left_ring: {
-    header: 'Photo 4 of 10 — Left Ring',
+    header: 'LEFT RING',
     bodyCopy: [
       'Place ONLY your ring finger on the paper',
       'Keep finger relaxed — do not press',
@@ -59,7 +59,7 @@ const photoConfigs = {
   },
 
   photo_left_pinky: {
-    header: 'Photo 5 of 10 — Left Pinky',
+    header: 'LEFT PINKY',
     bodyCopy: [
       'Place ONLY your pinky on the paper',
       'Keep the finger straight and relaxed',
@@ -71,7 +71,7 @@ const photoConfigs = {
   },
 
   photo_right_thumb: {
-    header: 'Photo 6 of 10 — Right Thumb',
+    header: 'RIGHT THUMB',
     bodyCopy: [
       'Switch hands — place ONLY your right thumb on the paper',
       'Let the rest of your hand hang off the edge',
@@ -83,7 +83,7 @@ const photoConfigs = {
   },
 
   photo_right_index: {
-    header: 'Photo 7 of 10 — Right Index',
+    header: 'RIGHT INDEX',
     bodyCopy: [
       'Place ONLY your index finger on the paper',
       'Keep finger relaxed',
@@ -95,7 +95,7 @@ const photoConfigs = {
   },
 
   photo_right_middle: {
-    header: 'Photo 8 of 10 — Right Middle',
+    header: 'RIGHT MIDDLE',
     bodyCopy: [
       'Place ONLY your middle finger on the paper',
       'Keep lighting even',
@@ -107,7 +107,7 @@ const photoConfigs = {
   },
 
   photo_right_ring: {
-    header: 'Photo 9 of 10 — Right Ring',
+    header: 'RIGHT RING',
     bodyCopy: [
       'Place ONLY your ring finger on the paper',
       'Relax finger — do not press',
@@ -119,7 +119,7 @@ const photoConfigs = {
   },
 
   photo_right_pinky: {
-    header: 'Photo 10 of 10 — Right Pinky',
+    header: 'RIGHT PINKY',
     bodyCopy: [
       'Place ONLY your pinky on the paper',
       'Keep finger straight',
@@ -457,7 +457,23 @@ context.drawImage(
   return (
     <div className="space-y-4">
       <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50">
-        <ul className="space-y-2 text-gray-300 text-sm">
+        
+        <h1 className="text-5xl font-bold text-center tracking-wide mb-4">
+  {config.header.toUpperCase()}
+</h1>
+
+<p className="text-lg text-center font-semibold mb-2">
+  One finger only
+</p>
+
+<p className="text-center text-sm font-medium mb-1">
+  Use a colored or dark card only — white cards will not work
+</p>
+
+<p className="text-center text-sm font-medium mb-4">
+  Use 1x only — no zoom
+</p>
+<ul className="space-y-2 text-gray-300 text-sm">
           {config.bodyCopy.map((item, index) => (
             <li key={index} className="flex items-start gap-2">
               <span className="text-blue-400 mt-0.5">•</span>
