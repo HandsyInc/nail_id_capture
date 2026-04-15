@@ -234,14 +234,12 @@ async function compressImageFile(
   });
 }
 export default function Home() {
- const [isTester, setIsTester] = useState(false);
+ const params =
+  typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search)
+    : null;
 
-useEffect(() => {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('test') === 'true') {
-    setIsTester(true);
-  }
-}, []);
+const isTester = params?.get('test') === 'true';
 
 if (!isTester) {
   return (
