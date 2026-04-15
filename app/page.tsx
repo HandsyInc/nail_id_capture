@@ -234,24 +234,6 @@ async function compressImageFile(
   });
 }
 export default function Home() {
- const params =
-  typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search)
-    : null;
-
-const isTester = params?.get('test') === 'true';
-
-if (!isTester) {
-  return (
-    <main style={{ padding: '40px', textAlign: 'center' }}>
-      <h1>Handsy is being updated</h1>
-      <p>
-        We’re making a quick calibration update to improve sizing accuracy.
-        Please check back shortly.
-      </p>
-    </main>
-  );
-} 
   console.log('HOME COMPONENT IS RENDERING');
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('capture_entry');
 
