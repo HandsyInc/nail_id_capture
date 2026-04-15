@@ -450,175 +450,38 @@ context.drawImage(
     );
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50">
-        
-        <h1 className="text-5xl font-bold text-center tracking-wide mb-4">
-  {config.header.toUpperCase()}
-</h1>
-
-<p className="text-lg text-center font-semibold mb-2">
-  One finger only
-</p>
-
-<p className="text-center text-sm font-medium mb-1">
-  Use a colored or dark card only — white cards will not work
-</p>
-
-<p className="text-center text-sm font-medium mb-4">
-  Use 1x only — no zoom
-</p>
-<ul className="space-y-2 text-gray-300 text-sm">
-          {config.bodyCopy.map((item, index) => (
-            <li key={index} className="flex items-start gap-2">
-              <span className="text-blue-400 mt-0.5">•</span>
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-        {config.helperText && (
-          <p className="text-xs text-blue-300/80 italic mt-4 pt-4 border-t border-gray-700/50">
-            {config.helperText}
-          </p>
-        )}
+return (
+  <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex items-center justify-center px-6">
+    <div className="w-full max-w-md text-center">
+      <div className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-white/70 mb-6">
+        Upload Photo
       </div>
 
-      {error && (
-        <div className="bg-red-900/30 border border-red-500/50 text-red-200 px-3 py-2 rounded-lg backdrop-blur-sm text-sm">
-          <p className="font-semibold mb-1">⚠️ {error}</p>
-          {error.includes('secure connection') && (
-            <div className="mt-2 pt-2 border-t border-red-500/30 text-xs">
-              <p className="mb-1"><strong>Development Tip:</strong></p>
-              <ul className="list-disc list-inside space-y-0.5 text-red-300/80">
-                <li>Use <code className="bg-red-900/50 px-1 rounded">localhost</code> or <code className="bg-red-900/50 px-1 rounded">127.0.0.1</code> - camera works without HTTPS</li>
-                <li>Or enable HTTPS in development (see DEVELOPMENT.md)</li>
-                <li>You can still upload photos using the file button below</li>
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
+      <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-white mb-4">
+        Upload your photo
+      </h1>
 
-      {/* Camera Preview - Always visible */}
-      <div className="relative w-full aspect-[8.5/11] bg-gray-900 rounded-xl overflow-hidden border-2 border-gray-700/50">
-        {/* Video element - always rendered, visible when camera is active */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="w-full h-full object-cover"
-          style={{ 
-            opacity: isCameraActive ? 1 : 0,
-            pointerEvents: isCameraActive ? 'auto' : 'none',
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            zIndex: 1
-          }}
-          onLoadedMetadata={() => {
-            // Video is ready when metadata is loaded
-            console.log('Video loadedmetadata - dimensions:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight);
-          }}
-          onCanPlay={() => {
-            console.log('Video canplay - dimensions:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight);
-          }}
-          onPlaying={() => {
-            console.log('Video playing - dimensions:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight);
+      <p className="text-white/70 mb-8">
+        Choose a photo or take one using your phone’s camera.
+      </p>
+
+      <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-white font-medium hover:bg-blue-500">
+        Choose Photo
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const preview = URL.createObjectURL(file);
+            onPhotoTaken(file, preview);
           }}
         />
-        
-        {/* Overlay frame */}
-        {isCameraActive && (
-          <div className="absolute inset-0 pointer-events-none z-10">
-            <div className="absolute inset-4 border-2 border-white/30 rounded-xl"></div>
-          </div>
-        )}
-        
-        {/* Loading overlay */}
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900/90 z-20">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500 mx-auto mb-3"></div>
-              <p className="text-gray-300 text-sm">Requesting camera access...</p>
-              <p className="text-xs text-gray-400 mt-1">Please allow camera permission in your browser</p>
-            </div>
-          </div>
-        )}
-        
-        {/* Placeholder when camera is not active */}
-        {!isCameraActive && !isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
-            <div className="text-center space-y-2 p-4">
-              <div className="text-3xl mb-1">📷</div>
-              <p className="text-gray-300 text-sm mb-2">
-                {cameraSupported 
-                  ? 'Camera not available. Please upload a photo from your device.'
-                  : 'Camera not available. Please upload a photo from your device.'}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Hidden canvas for capturing */}
-      <canvas ref={canvasRef} className="hidden" />
-
-      {/* File input fallback */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        onChange={handleFileSelect}
-        className="hidden"
-      />
-
-      {/* Action Buttons */}
-      <div className="space-y-2">
-        {cameraSupported && isCameraActive && (
-          <button
-            onClick={capturePhoto}
-            className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2.5 px-4 rounded-lg font-semibold text-base hover:from-blue-500 hover:to-cyan-500 transition-all duration-200 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Capture Photo
-          </button>
-        )}
-        
-        {/* Always show file upload option as fallback */}
-        {(!cameraSupported || !isCameraActive) && (
-          <button
-            onClick={handleUseFileInput}
-            className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2.5 px-4 rounded-lg font-semibold text-base hover:from-blue-500 hover:to-cyan-500 transition-all duration-200 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            {hasRequestedPermission ? 'Upload Photo from Device' : 'Choose Photo from Device'}
-          </button>
-        )}
-        
-        {/* Show file upload as secondary option when camera is active */}
-        {cameraSupported && isCameraActive && (
-          <button
-            onClick={handleUseFileInput}
-            className="w-full bg-gray-800/50 text-gray-300 py-2 px-4 rounded-lg font-medium hover:bg-gray-700/50 border border-gray-700/50 transition-all duration-200 flex items-center justify-center gap-2 text-sm"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            Or upload from device
-          </button>
-        )}
-      </div>
+      </label>
     </div>
-  );
+  </main>
+);
 }
 
