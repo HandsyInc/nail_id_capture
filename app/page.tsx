@@ -89,11 +89,11 @@ function generateUUID() {
   // Generate a UUID v4 compatible string
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  
+
   // Set version (4) and variant bits
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  
+
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
@@ -235,23 +235,24 @@ async function compressImageFile(
 }
 export default function Home() {
   console.log('HOME COMPONENT IS RENDERING');
+  const MAINTENANCE_MODE = true;
   const [currentScreen, setCurrentScreen] = useState<ScreenName>('capture_entry');
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
 
   const [photos, setPhotos] = useState<PhotoData[]>([
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-  { file: null, preview: null, imageId: null },
-]);
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+  ]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [previewPhotoIndex, setPreviewPhotoIndex] = useState<number | null>(null);
 
@@ -357,8 +358,8 @@ export default function Home() {
       'photo_right_pinky',
 
       'capture_confirm',
-  ];
-    
+    ];
+
     const currentIndex = flow.indexOf(currentScreen);
     if (currentIndex < flow.length - 1) {
       setCurrentScreen(flow[currentIndex + 1]);
@@ -421,29 +422,29 @@ export default function Home() {
     }
   };
 
-const handlePhotoTaken = (file: File, preview: string) => {
-  const newPhotos = [...photos];
-  newPhotos[currentPhotoIndex] = { file, preview, imageId: null };
+  const handlePhotoTaken = (file: File, preview: string) => {
+    const newPhotos = [...photos];
+    newPhotos[currentPhotoIndex] = { file, preview, imageId: null };
 
-  setPhotos(newPhotos);
-  setPreviewPhotoIndex(currentPhotoIndex);
-  setUploadSuccess(false);
+    setPhotos(newPhotos);
+    setPreviewPhotoIndex(currentPhotoIndex);
+    setUploadSuccess(false);
 
-  const previewScreens: ScreenName[] = [
-    'photo_preview_left_thumb',
-    'photo_preview_left_index',
-    'photo_preview_left_middle',
-    'photo_preview_left_ring',
-    'photo_preview_left_pinky',
-    'photo_preview_right_thumb',
-    'photo_preview_right_index',
-    'photo_preview_right_middle',
-    'photo_preview_right_ring',
-    'photo_preview_right_pinky',
-  ];
+    const previewScreens: ScreenName[] = [
+      'photo_preview_left_thumb',
+      'photo_preview_left_index',
+      'photo_preview_left_middle',
+      'photo_preview_left_ring',
+      'photo_preview_left_pinky',
+      'photo_preview_right_thumb',
+      'photo_preview_right_index',
+      'photo_preview_right_middle',
+      'photo_preview_right_ring',
+      'photo_preview_right_pinky',
+    ];
 
-  setCurrentScreen(previewScreens[currentPhotoIndex]);
-};
+    setCurrentScreen(previewScreens[currentPhotoIndex]);
+  };
 
   const handleUsePhoto = async () => {
     if (previewPhotoIndex !== null) {
@@ -512,46 +513,46 @@ const handlePhotoTaken = (file: File, preview: string) => {
 
         // Show success state on preview
         setUploadSuccess(true);
-        
+
         // Auto-continue after 2.5 seconds
         setTimeout(() => {
           // Move to next photo or confirmation
-         if (previewPhotoIndex < 9) {
-  const nextPhotoIndex = previewPhotoIndex + 1;
-  setCurrentPhotoIndex(nextPhotoIndex);
+          if (previewPhotoIndex < 9) {
+            const nextPhotoIndex = previewPhotoIndex + 1;
+            setCurrentPhotoIndex(nextPhotoIndex);
 
-  const nextPhotoScreens: ScreenName[] = [
-    'photo_left_thumb',
-    'photo_left_index',
-    'photo_left_middle',
-    'photo_left_ring',
-    'photo_left_pinky',
-    'photo_right_thumb',
-    'photo_right_index',
-    'photo_right_middle',
-    'photo_right_ring',
-    'photo_right_pinky',
-  ];
+            const nextPhotoScreens: ScreenName[] = [
+              'photo_left_thumb',
+              'photo_left_index',
+              'photo_left_middle',
+              'photo_left_ring',
+              'photo_left_pinky',
+              'photo_right_thumb',
+              'photo_right_index',
+              'photo_right_middle',
+              'photo_right_ring',
+              'photo_right_pinky',
+            ];
 
-  setPreviewPhotoIndex(null);
-  setIsUploading(false);
-  setCurrentScreen(nextPhotoScreens[nextPhotoIndex]);
-} else {
-  setPreviewPhotoIndex(null);
-  setIsUploading(false);
-  setCurrentScreen('capture_confirm');
-}
-setUploadSuccess(false);
+            setPreviewPhotoIndex(null);
+            setIsUploading(false);
+            setCurrentScreen(nextPhotoScreens[nextPhotoIndex]);
+          } else {
+            setPreviewPhotoIndex(null);
+            setIsUploading(false);
+            setCurrentScreen('capture_confirm');
+          }
+          setUploadSuccess(false);
         }, 2500);
       } catch (error: any) {
-  console.error('Submission failed:', error);
-  alert(`Submission failed: ${error?.message || error}`);
-  setCurrentScreen('capture_confirm');
-} finally {
-  setIsUploading(false);
-}
-}
-};
+        console.error('Submission failed:', error);
+        alert(`Submission failed: ${error?.message || error}`);
+        setCurrentScreen('capture_confirm');
+      } finally {
+        setIsUploading(false);
+      }
+    }
+  };
 
   const handleRetakePhoto = () => {
     if (previewPhotoIndex !== null) {
@@ -568,158 +569,158 @@ setUploadSuccess(false);
         'photo_right_middle',
         'photo_right_ring',
         'photo_right_pinky',
-  ];
+      ];
       setCurrentScreen(photoScreens[previewPhotoIndex]);
       setPreviewPhotoIndex(null);
     }
   };
 
   const handleSubmit = async () => {
-  if (!canSubmit || !projectId) return;
+    if (!canSubmit || !projectId) return;
 
-  setCurrentScreen('processing');
+    setCurrentScreen('processing');
 
-  try {
-    const formData = new FormData();
-    formData.append('name', name);
-    formData.append('email', email);
+    try {
+      const formData = new FormData();
+      formData.append('name', name);
+      formData.append('email', email);
 
 
-  for (let index = 0; index < photos.length; index++) {
-      const photo = photos[index];
+      for (let index = 0; index < photos.length; index++) {
+        const photo = photos[index];
 
-      if (!photo.file) {
-        throw new Error(`Missing file for photo ${index + 1}`);
+        if (!photo.file) {
+          throw new Error(`Missing file for photo ${index + 1}`);
+        }
+
+        const compressedFile = await compressImageFile(photo.file, 1000, 0.6);
+        formData.append('photos', compressedFile, compressedFile.name);
       }
 
-      const compressedFile = await compressImageFile(photo.file, 1000, 0.6);
-      formData.append('photos', compressedFile, compressedFile.name);
+      const response = await fetch('/api/submit-photos', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to submit photos: ${errorText}`);
+      }
+
+      setCurrentScreen('success');
+    } catch (error: any) {
+      console.error('Submission failed:', error);
+      alert(`Submission failed: ${error?.message || error}`);
+      setCurrentScreen('capture_confirm');
     }
-
-    const response = await fetch('/api/submit-photos', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to submit photos: ${errorText}`);
-    }
-
-    setCurrentScreen('success');
-  } catch (error: any) {
-    console.error('Submission failed:', error);
-    alert(`Submission failed: ${error?.message || error}`);
-    setCurrentScreen('capture_confirm');
-  }
-};
+  };
 
   const renderScreen = () => {
     switch (currentScreen) {
       case 'capture_entry':
-  return (
-    <CaptureEntry
-      onStart={handleStart}
-      isStarting={isStarting}
-      errorMessage={startError}
-    />
-  );
+        return (
+          <CaptureEntry
+            onStart={handleStart}
+            isStarting={isStarting}
+            errorMessage={startError}
+          />
+        );
       case 'user_info':
         return (
-      <div className="space-y-6 text-center">
-        <h1 className="text-2xl font-bold text-gray-100">
-          Tell us where to send your Nail ID
-        </h1>
+          <div className="space-y-6 text-center">
+            <h1 className="text-2xl font-bold text-gray-100">
+              Tell us where to send your Nail ID
+            </h1>
 
-        <input
-          type="text"
-          placeholder="Your name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full p-3 rounded-lg bg-gray-800 text-white"
-        />
+            <input
+              type="text"
+              placeholder="Your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full p-3 rounded-lg bg-gray-800 text-white"
+            />
 
-        <input
-          type="email"
-          placeholder="Your email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full p-3 rounded-lg bg-gray-800 text-white"
-        />
+            <input
+              type="email"
+              placeholder="Your email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full p-3 rounded-lg bg-gray-800 text-white"
+            />
 
-        <button
-          onClick={() => setCurrentScreen('capture_rules')}
-          disabled={!name || !email}
-          className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
-        >
-          Continue
-        </button>
-      </div>
-    )
-        case 'capture_rules':
+            <button
+              onClick={() => setCurrentScreen('capture_rules')}
+              disabled={!name || !email}
+              className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
+            >
+              Continue
+            </button>
+          </div>
+        )
+      case 'capture_rules':
         return (
-    <div className="space-y-6 text-center">
-      <h1 className="text-2xl font-bold text-gray-100">
-        Before you start
-      </h1>
+          <div className="space-y-6 text-center">
+            <h1 className="text-2xl font-bold text-gray-100">
+              Before you start
+            </h1>
 
-      <p className="text-gray-400">
-        You’ll need:
-      </p>
+            <p className="text-gray-400">
+              You’ll need:
+            </p>
 
-      <div className="space-y-2 text-gray-300">
-        <p>• A plain white sheet of standard printer paper (8.5 × 11)</p>
-        <p>• A credit, debit, or loyalty card</p>
-      </div>
+            <div className="space-y-2 text-gray-300">
+              <p>• A plain white sheet of standard printer paper (8.5 × 11)</p>
+              <p>• A credit, debit, or loyalty card</p>
+            </div>
 
-      <button
-        onClick={() => setCurrentScreen('camera_rules')}
-        className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
-      >
-        I’m ready
-      </button>
-    </div>
-  );
+            <button
+              onClick={() => setCurrentScreen('camera_rules')}
+              className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
+            >
+              I’m ready
+            </button>
+          </div>
+        );
       case 'camera_rules':
         return (
-    <div className="space-y-6 text-center">
-      <h1 className="text-2xl font-bold text-gray-100">
-        Follow this setup for each photo
-      </h1>
+          <div className="space-y-6 text-center">
+            <h1 className="text-2xl font-bold text-gray-100">
+              Follow this setup for each photo
+            </h1>
 
-      <ul className="space-y-3 text-gray-300 text-sm text-left list-disc pl-5">
-  <li>One finger at a time</li>
-  <li>Remove all jewelry from your fingers</li>
-  <li>Place the card flat on the paper, then position your finger beside it</li>
-  <li>Place one finger flat on the paper, right beside the card</li>
-  <li>
-  Let the other fingers hang off the edge of the table<br />
-  <span className="text-gray-400">
-    (only the finger being photographed should rest on the paper)
-  </span>
-</li>
-  <li>Hold your phone directly above your finger, parallel to the table (not tilted)</li>
-  <li>Make sure both your finger and the card are fully visible</li>
-  <li>
-    Adjust your distance so the white paper fills the entire frame, edge to edge<br />
-    <span className="text-gray-400">(this ensures a consistent capture distance)</span>
-  </li>
-</ul>
+            <ul className="space-y-3 text-gray-300 text-sm text-left list-disc pl-5">
+              <li>One finger at a time</li>
+              <li>Remove all jewelry from your fingers</li>
+              <li>Place the card flat on the paper, then position your finger beside it</li>
+              <li>Place one finger flat on the paper, right beside the card</li>
+              <li>
+                Let the other fingers hang off the edge of the table<br />
+                <span className="text-gray-400">
+                  (only the finger being photographed should rest on the paper)
+                </span>
+              </li>
+              <li>Hold your phone directly above your finger, parallel to the table (not tilted)</li>
+              <li>Make sure both your finger and the card are fully visible</li>
+              <li>
+                Adjust your distance so the white paper fills the entire frame, edge to edge<br />
+                <span className="text-gray-400">(this ensures a consistent capture distance)</span>
+              </li>
+            </ul>
 
-      <img
-        src="/example.jpg"
-        alt="Example nail photo"
-        className="rounded-xl"
-      />
+            <img
+              src="/example.jpg"
+              alt="Example nail photo"
+              className="rounded-xl"
+            />
 
-      <button
-        onClick={() => setCurrentScreen('photo_left_thumb')}
-        className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
-      >
-        Start taking photos
-      </button>
-    </div>
-  );
+            <button
+              onClick={() => setCurrentScreen('photo_left_thumb')}
+              className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
+            >
+              Start taking photos
+            </button>
+          </div>
+        );
       case 'photo_left_thumb':
       case 'photo_left_index':
       case 'photo_left_middle':
@@ -731,8 +732,12 @@ setUploadSuccess(false);
       case 'photo_right_ring':
       case 'photo_right_pinky':
         return (
-  <div>Camera temporarily disabled</div>
-);
+          <PhotoCapture
+            screenName={currentScreen}
+            photoIndex={currentPhotoIndex}
+            onPhotoTaken={handlePhotoTaken}
+          />
+        );
       case 'photo_preview_left_thumb':
       case 'photo_preview_left_index':
       case 'photo_preview_left_middle':
@@ -762,16 +767,37 @@ setUploadSuccess(false);
         return <SuccessScreen />;
       case 'error':
         return <ErrorScreen onRetry={() => setCurrentScreen('capture_entry')} />;
-            default:
-  return (
-    <CaptureEntry
-      onStart={handleStart}
-      isStarting={isStarting}
-      errorMessage={startError}
-    />
-  );
+      default:
+              return (
+        <CaptureEntry
+          onStart={handleStart}
+          isStarting={isStarting}
+          errorMessage={startError}
+        />
+      );
     }
   };
+
+  if (MAINTENANCE_MODE) {
+    return (
+  <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex items-center justify-center px-6">
+    <div className="max-w-xl text-center">
+      <div className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-white/70 mb-6">
+        Handsy
+      </div>
+
+      <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-white mb-4">
+        We’re fine-tuning our system to deliver the most accurate fit
+      </h1>
+
+      <p className="text-lg text-white/70 leading-relaxed">
+      
+        Back very soon.
+      </p>
+    </div>
+  </main>
+);
+  }
 
   return renderScreen();
 }
