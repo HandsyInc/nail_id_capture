@@ -187,8 +187,7 @@ export default function PhotoCapture({
       const currentStream = streamRef.current;
 currentStream?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
 streamRef.current = null;
-        streamRef.current = null;
-      }
+  
     
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -211,7 +210,7 @@ streamRef.current = null;
       console.log('Stream obtained - active:', stream.active, 'tracks:', videoTracks.length);
 
       if (videoRef.current) {
-        const video = videoRef.current;
+        const video = videoRef.current!;
         streamRef.current = stream;
         
         // Clear any existing srcObject first
