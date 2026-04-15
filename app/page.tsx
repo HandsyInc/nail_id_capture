@@ -455,6 +455,16 @@ export default function Home() {
         setUploadError('Missing image data. Please retake the photo.');
         return;
       }
+      const originalPreview = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('Failed to read original file.'));
+        reader.readAsDataURL(photo.file!);
+      });
+      if (!photo?.file || !photo.preview) {
+        setUploadError('Missing image data. Please retake the photo.');
+        return;
+      }
 
       if (!projectId) {
         setUploadError('Project is not initialized yet. Please go back and start the scan again.');
@@ -464,8 +474,8 @@ export default function Home() {
       setIsUploading(true);
       try {
         // Client-side validations before upload
-        validateImageBeforeUpload(photo.file, photo.preview);
-        const orientation = await getImageOrientationFromDataUrl(photo.preview);
+        validateImageBeforeUpload(photo.file, originalPreview);
+        const orientation = await getImageOrientationFromDataUrl(originalPreview);
 
         // Orientation validation
         if (orientation !== 'portrait') {
@@ -477,7 +487,7 @@ export default function Home() {
 
         const meta = getUploadMetadataForPhotoIndex(previewPhotoIndex);
         const body: UploadRequest = {
-          image_data: dataUrlToBase64(photo.preview),
+          image_data: dataUrlToBase64(originalPreview),
           image_metadata: {
             project_id: projectId,
             image_type: meta.image_type,
