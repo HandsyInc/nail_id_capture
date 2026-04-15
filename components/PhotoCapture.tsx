@@ -151,15 +151,8 @@ export default function PhotoCapture({
 
   // Check if camera is supported and auto-start camera
   useEffect(() => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setCameraSupported(false);
-    } else if (!hasAutoStartedRef.current) {
-      // Automatically start camera when component mounts (only once)
-      hasAutoStartedRef.current = true;
-      startCamera();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  setCameraSupported(false);
+}, []);
 
   // Cleanup camera on unmount or when screenName/photoIndex changes
   useEffect(() => {
@@ -176,6 +169,8 @@ export default function PhotoCapture({
   }, [screenName, photoIndex]);
 
   const startCamera = async () => {
+      return;
+      
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCameraSupported(false);
       setError('Camera is not supported on this device.');
