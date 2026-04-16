@@ -7,26 +7,14 @@ export default function CaptureRules({ onNext }: CaptureRulesProps) {
     <div className="space-y-4">
       <h1 className="text-2xl sm:text-3xl font-bold text-gray-100">Before you start</h1>
       
-      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50">
-        <ul className="space-y-2 text-gray-300 text-sm">
-          <li className="flex items-start gap-2">
-            <span className="text-blue-400 mt-0.5">•</span>
-            <span>Use bright, even lighting</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-blue-400 mt-0.5">•</span>
-            <span>Use your phone&apos;s regular camera (no filters)</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-blue-400 mt-0.5">•</span>
-            <span>Keep a card fully visible in every photo</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-blue-400 mt-0.5">•</span>
-            <span>Keep your hand relaxed — don&apos;t press or squeeze</span>
-          </li>
-        </ul>
-      </div>
+      <p className="text-gray-300 mt-4">
+  You’ll need:
+</p>
+
+<ul className="text-gray-200 space-y-2 mt-4 mb-8">
+  <li>• A plain white sheet of paper (8.5 × 11)</li>
+  <li>• A credit, debit, or loyalty card</li>
+</ul>
 
       <button
         onClick={onNext}

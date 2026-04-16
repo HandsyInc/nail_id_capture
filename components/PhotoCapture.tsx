@@ -453,25 +453,22 @@ context.drawImage(
 return (
   <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 flex items-center justify-center px-6">
     <div className="w-full max-w-md text-center">
-      <div className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-white/70 mb-6">
-        Upload Photo
-      </div>
 
       <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-white mb-4">
-        Upload your photo
-      </h1>
+  {config.header}
+</h1>
 
      <div className="mb-8 space-y-1">
-        <p className="text-white text-base font-medium">
-        Select a photo from your library
-        </p>
-        <p className="text-white/80 text-sm">
-        Do not take a new photo — it affects sizing accuracy
-        </p>
-      </div>
+  <p className="text-white text-base font-medium">
+    Upload your {config.header.toLowerCase()} photo
+  </p>
+  <p className="text-white/80 text-sm">
+    Choose the matching photo from your library
+  </p>
+</div>
 
       <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-white font-medium hover:bg-blue-500">
-        Choose Photo from your library
+        Choose Photo
         <input
           type="file"
           accept="image/*"
