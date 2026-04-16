@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import CaptureEntry from '@/components/CaptureEntry';
 import CaptureRules from '@/components/CaptureRules';
 import CameraRules from '@/components/CameraRules';
+import CaptureReady from '@/components/CaptureReady';
 import PhotoCapture from '@/components/PhotoCapture';
 import PhotoPreview from '@/components/PhotoPreview';
 import CaptureConfirm from '@/components/CaptureConfirm';
@@ -17,6 +18,7 @@ export type ScreenName =
   | 'user_info'
   | 'capture_rules'
   | 'camera_rules'
+  | 'capture_ready'
   | 'photo_left_thumb'
   | 'photo_preview_left_thumb'
   | 'photo_left_index'
@@ -296,6 +298,7 @@ export default function Home() {
       capture_entry: undefined,
       capture_rules: undefined,
       camera_rules: undefined,
+      capture_ready: undefined,
       user_info: undefined,
 
       photo_left_thumb: 'Left Thumb',
@@ -687,7 +690,7 @@ export default function Home() {
               onClick={() => setCurrentScreen('camera_rules')}
               className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
             >
-              I’m ready
+              Got it
             </button>
           </div>
         );
@@ -731,6 +734,12 @@ export default function Home() {
             </button>
           </div>
         );
+        case 'capture_ready':
+  return (
+    <CaptureReady
+      onNext={() => setCurrentScreen('photo_left_thumb')}
+    />
+  );
       case 'photo_left_thumb':
       case 'photo_left_index':
       case 'photo_left_middle':

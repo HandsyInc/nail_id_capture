@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from 'react';
 import { ScreenName } from '@/app/page';
+import CaptureReady from './CaptureReady';
 
 interface PhotoCaptureProps {
   screenName: ScreenName;
