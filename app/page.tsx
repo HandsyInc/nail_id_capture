@@ -698,27 +698,21 @@ export default function Home() {
         return (
           <div className="space-y-6 text-center">
             <h1 className="text-2xl font-bold text-gray-100">
-              Follow this setup for each photo
+              Set up each photo like this
             </h1>
 
             <ul className="space-y-3 text-gray-300 text-sm text-left list-disc pl-5">
-              <li>One finger at a time</li>
-              <li>Remove all jewelry from your fingers</li>
-              <li>Place the card flat on the paper, then position your finger beside it</li>
-              <li>Place one finger flat on the paper, right beside the card</li>
-              <li>
-                Let the other fingers hang off the edge of the table<br />
-                <span className="text-gray-400">
-                  (only the finger being photographed should rest on the paper)
-                </span>
-              </li>
-              <li>Hold your phone directly above your finger, parallel to the table (not tilted)</li>
-              <li>Make sure both your finger and the card are fully visible</li>
-              <li>
-                Adjust your distance so the white paper fills the entire frame, edge to edge<br />
-                <span className="text-gray-400">(this ensures a consistent capture distance)</span>
-              </li>
-            </ul>
+  <li>Place white paper flat on the table</li>
+  <li>Remove all rings</li>
+  <li>Lay one finger flat on the paper beside the card, keeping the nail facing up</li>
+  <li>Let your other fingers hang off the table edge</li>
+  <li>Hold your phone straight above, not angled</li>
+  <li>Keep the full finger and full card in the frame</li>
+  <li>Move closer or farther until the white paper fills the screen</li>
+</ul>
+<p className="text-sm text-gray-400 mt-4">
+  This ensures accurate measurements.
+</p>
 
             <img
               src="/example.jpg"
@@ -727,10 +721,10 @@ export default function Home() {
             />
 
             <button
-              onClick={() => setCurrentScreen('photo_left_thumb')}
+              onClick={() => setCurrentScreen('capture_ready')}
               className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
             >
-              Start taking photos
+              Next
             </button>
           </div>
         );

@@ -10,7 +10,7 @@ export default function CaptureReady({ onNext }: CaptureReadyProps) {
       </h1>
 
       <p className="text-gray-300 max-w-md mx-auto">
-        Go out of this app now, take all 10 photos on your phone, then come back here when you’re ready to upload them.
+        Leave this page, take all 10 photos on your phone, then come back here when you’re ready to upload them.
       </p>
 
       <p className="text-sm text-gray-400 max-w-md mx-auto">
