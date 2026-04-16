@@ -461,12 +461,17 @@ return (
         Upload your photo
       </h1>
 
-      <p className="text-white/70 mb-8">
-        Choose a photo or take one using your phone’s camera.
-      </p>
+     <div className="mb-8 space-y-1">
+        <p className="text-white text-base font-medium">
+        Select a photo from your library
+        </p>
+        <p className="text-white/80 text-sm">
+        Do not take a new photo — it affects sizing accuracy
+        </p>
+      </div>
 
       <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-white font-medium hover:bg-blue-500">
-        Choose Photo
+        Choose Photo from your library
         <input
           type="file"
           accept="image/*"
