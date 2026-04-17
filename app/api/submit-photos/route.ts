@@ -10,12 +10,19 @@ export async function POST(req: NextRequest) {
     const email = String(formData.get('email') || '');
     const photo = formData.get('photos') as File | null;
 
-    const nailId = String(formData.get('nailId') || '');
+    const nailId = String(formData.get('nailId') || `NAILID-${Math.floor(1000 + Math.random() * 9000)}`);
     const hand = String(formData.get('hand') || '');
     const finger = String(formData.get('finger') || '');
     const label = hand && finger ? `${hand}-${finger}` : 'photo';
-
-    if (!name || !email || !nailId || !photo) {
+console.log('DEBUG submit-photos:', {
+  name,
+  email,
+  nailId,
+  hasPhoto: !!photo,
+  hand,
+  finger,
+});
+    if (!name || !email || !photo) {
       return NextResponse.json({ error: 'Missing data' }, { status: 400 });
     }
 
