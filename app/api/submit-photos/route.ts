@@ -14,6 +14,9 @@ export async function POST(req: NextRequest) {
     const name = String(formData.get('name') || '');
     const email = String(formData.get('email') || '');
     const photos = formData.getAll('photos') as unknown as File[];
+    for (const photo of photos) {
+  console.log('ROUTE FILE:', photo.name, photo.type, photo.size);
+}
 
     const nailId = `NAILID-${Math.floor(1000 + Math.random() * 9000)}`;
 

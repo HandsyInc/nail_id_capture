@@ -606,6 +606,7 @@ export default function Home() {
           throw new Error(`Missing file for photo ${index + 1}`);
         }
 
+        console.log('SUBMITTING FILE:', photo.file.name, photo.file.type, photo.file.size);
         formData.append('photos', photo.file, photo.file.name);
       }
 

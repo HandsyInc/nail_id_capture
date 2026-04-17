@@ -418,6 +418,13 @@ context.drawImage(
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    console.log('SELECTED FILE:', file.name, file.type, file.size);
+
+const img = new Image();
+img.onload = () => {
+  console.log('SELECTED FILE DIMENSIONS:', img.naturalWidth, 'x', img.naturalHeight);
+};
+img.src = URL.createObjectURL(file);
 
     // Client-side validation
     if (!file.type.startsWith('image/')) {
