@@ -479,16 +479,11 @@ return (
       <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-white font-medium hover:bg-blue-500">
         Choose Photo
         <input
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            const preview = URL.createObjectURL(file);
-            onPhotoTaken(file, preview);
-          }}
-        />
+  type="file"
+  accept="image/*"
+  className="hidden"
+  onChange={handleFileSelect}
+/>
       </label>
     </div>
   </main>
