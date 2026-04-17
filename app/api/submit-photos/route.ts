@@ -18,34 +18,24 @@ export async function POST(req: NextRequest) {
   console.log('ROUTE FILE:', photo.name, photo.type, photo.size);
 }
 
-    const nailId = `NAILID-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    if (!name || !email || photos.length === 0) {
+    const nailId = String(formData.get('nailId') || '');
+    const hand = String(formData.get('hand') || '');
+    const finger = String(formData.get('finger') || '');
+    const label = hand && finger ? `${hand}-${finger}` : 'photo';
+    if (!name || !email || !nailId || photos.length === 0) {
       return NextResponse.json({ error: 'Missing data' }, { status: 400 });
     }
 
     console.log('Incoming photos count:', photos.length);
     console.log('NAILID:', nailId);
 
-    const orderedLabels = [
-      'left-thumb',
-      'left-index',
-      'left-middle',
-      'left-ring',
-      'left-pinky',
-      'right-thumb',
-      'right-index',
-      'right-middle',
-      'right-ring',
-      'right-pinky',
-    ];
 
     const attachments = await Promise.all(
       photos.map(async (file: File, i: number) => {
         const buffer = Buffer.from(await file.arrayBuffer());
 
         return {
-          filename: `${orderedLabels[i] || `photo-${i + 1}`}.jpg`,
+          filename: `${label}.jpg`,
           content: buffer.toString('base64'),
         };
       })
@@ -54,25 +44,16 @@ export async function POST(req: NextRequest) {
     await resend.emails.send({
       from: process.env.HANDSY_FROM_EMAIL!,
       to: 'hello@gethandsy.com',
-      subject: `New Handsy Submission — ${nailId}`,
+      subject: `New Handsy Submission — ${nailId} — ${label}`,
       html: `
-        <p><strong>Nail ID:</strong> ${nailId}</p>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Photos:</strong> ${photos.length}</p>
-      `,
+    <p><strong>Nail ID:</strong> ${nailId}</p>
+    <p><strong>Name:</strong> ${name}</p>
+    <p><strong>Email:</strong> ${email}</p>
+    <p><strong>Hand:</strong> ${hand}</p>
+    <p><strong>Finger:</strong> ${finger}</p>
+    <p><strong>Photos:</strong> ${photos.length}</p>
+`,
       attachments,
-    });
-
-    await resend.emails.send({
-      from: process.env.HANDSY_FROM_EMAIL!,
-      to: email,
-      subject: `We received your photos — ${nailId}`,
-      html: `
-        <p>Hi ${name},</p>
-        <p>Your photos were received successfully.</p>
-        <p><strong>Nail ID:</strong> ${nailId}</p>
-      `,
     });
 
     return NextResponse.json({ ok: true, nailId });

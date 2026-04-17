@@ -43,8 +43,6 @@ export type ScreenName =
   | 'processing'
   | 'success'
   | 'error'
-  | 'left_hand_review'
-  | 'right_hand_review';
 
 export type PhotoData = {
   file: File | null;
@@ -261,6 +259,7 @@ export default function Home() {
   const [previewPhotoIndex, setPreviewPhotoIndex] = useState<number | null>(null);
 
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [nailId, setNailId] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
@@ -333,8 +332,6 @@ export default function Home() {
       photo_right_pinky: 'Right Pinky',
       photo_preview_right_pinky: uploadSuccess ? 'Upload Success' : 'Review Right Pinky',
 
-      left_hand_review: 'Left hand complete',
-      right_hand_review: 'Right hand complete',
 
       capture_confirm: undefined,
       processing: undefined,
@@ -463,15 +460,7 @@ export default function Home() {
         setUploadError('Missing image data. Please retake the photo.');
         return;
       }
-      if (previewPhotoIndex === 4) {
-  setCurrentScreen('left_hand_review');
-  return;
-}
-
-if (previewPhotoIndex === 9) {
-  setCurrentScreen('right_hand_review');
-  return;
-}
+    
       const originalPreview = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
@@ -527,6 +516,24 @@ if (previewPhotoIndex === 9) {
         }
 
         const data = (await res.json()) as UploadResponse;
+        const singlePhotoFormData = new FormData();
+singlePhotoFormData.append('name', name);
+singlePhotoFormData.append('email', email);
+singlePhotoFormData.append('nailId', nailId || '');
+singlePhotoFormData.append('projectId', projectId);
+singlePhotoFormData.append('photos', photo.file, photo.file.name);
+singlePhotoFormData.append('hand', meta.hand);
+singlePhotoFormData.append('finger', meta.finger);
+
+const emailRes = await fetch('/api/submit-photos', {
+  method: 'POST',
+  body: singlePhotoFormData,
+});
+
+if (!emailRes.ok) {
+  const errorText = await emailRes.text();
+  throw new Error(`Failed to send photo email: ${errorText}`);
+}
 
         // Save returned image_id when available
         setPhotos((prev) => {
@@ -571,10 +578,10 @@ if (previewPhotoIndex === 9) {
           }
           setUploadSuccess(false);
         }, 2500);
-      } catch (error: any) {
-        console.error('Submission failed:', error);
-        alert(`Submission failed: ${error?.message || error}`);
-        setCurrentScreen('capture_confirm');
+            } catch (error: any) {
+        console.error('Photo upload/email failed:', error);
+        setUploadError('We couldn’t save this photo right now. Please try again.');
+        return;
       } finally {
         setIsUploading(false);
       }
@@ -602,75 +609,34 @@ if (previewPhotoIndex === 9) {
     }
   };
 
-  const handleSubmitLeftHand = async () => {
-  if (!projectId) {
-  console.error('No projectId on left hand submit');
-  return;
-}
+  const handleSubmit = async () => {
+  if (!projectId) return;
+
+  setCurrentScreen('processing');
 
   try {
-    const formData = new FormData();
-    formData.append('name', name);
-    formData.append('email', email);
-
-    // only send LEFT HAND (first 5 photos)
-    for (let i = 0; i < 5; i++) {
-      const photo = photos[i];
-      if (!photo?.file) continue;
-      formData.append('photos', photo.file, photo.file.name);
-    }
-
-    await fetch('/api/submit-photos', {
+    const response = await fetch('/api/send-confirmation', {
       method: 'POST',
-      body: formData,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        email,
+        nailId: nailId || '',
+      }),
     });
 
-    setCurrentScreen('photo_right_thumb');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to send confirmation: ${errorText}`);
+    }
 
-  } catch (err) {
-    console.error('Left hand submit failed', err);
+    setCurrentScreen('success');
+  } catch (error: any) {
+    console.error('Confirmation failed:', error);
+    alert('We couldn’t send your confirmation right now. Please try again.');
+    setCurrentScreen('capture_confirm');
   }
 };
-
-  const handleSubmit = async () => {
-    if (!canSubmit || !projectId) return;
-
-    setCurrentScreen('processing');
-
-    try {
-      const formData = new FormData();
-      formData.append('name', name);
-      formData.append('email', email);
-
-
-      for (let index = 0; index < photos.length; index++) {
-        const photo = photos[index];
-
-        if (!photo.file) {
-          throw new Error(`Missing file for photo ${index + 1}`);
-        }
-
-        console.log('SUBMITTING FILE:', photo.file.name, photo.file.type, photo.file.size);
-        formData.append('photos', photo.file, photo.file.name);
-      }
-
-      const response = await fetch('/api/submit-photos', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to submit photos: ${errorText}`);
-      }
-
-      setCurrentScreen('success');
-    } catch (error: any) {
-      console.error('Submission failed:', error);
-      alert(`Submission failed: ${error?.message || error}`);
-      setCurrentScreen('capture_confirm');
-    }
-  };
 
   const renderScreen = () => {
     switch (currentScreen) {
@@ -816,43 +782,8 @@ if (previewPhotoIndex === 9) {
             errorMessage={uploadError}
           />
         );
-        case 'left_hand_review':
-  return (
-    <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-  <h1 style={{ fontSize: '28px', marginBottom: '16px' }}>
-    Left hand complete
-  </h1>
+  
 
-  <p style={{ fontSize: '16px', marginBottom: '32px', opacity: 0.8 }}>
-    We’ve saved your left hand. Now let’s capture your right hand.
-  </p>
-
-  <button
-    onClick={handleSubmitLeftHand}
-    style={{
-      backgroundColor: '#000',
-      color: '#fff',
-      padding: '14px 24px',
-      fontSize: '16px',
-      borderRadius: '8px',
-      border: 'none',
-      cursor: 'pointer'
-    }}
-  >
-    Continue to right hand
-  </button>
-</div>
-  );
-
-case 'right_hand_review':
-  return (
-    <div style={{ textAlign: 'center', padding: '40px' }}>
-      <h2>Right hand complete</h2>
-      <button onClick={() => setCurrentScreen('capture_confirm')}>
-        Review & submit
-      </button>
-    </div>
-  );
       case 'capture_confirm':
         return <CaptureConfirm photos={photos} onSubmit={handleSubmit} />;
       case 'processing':
