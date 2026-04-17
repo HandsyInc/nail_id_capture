@@ -42,7 +42,9 @@ export type ScreenName =
   | 'capture_confirm'
   | 'processing'
   | 'success'
-  | 'error';
+  | 'error'
+  | 'left_hand_review'
+  | 'right_hand_review';
 
 export type PhotoData = {
   file: File | null;
@@ -331,6 +333,9 @@ export default function Home() {
       photo_right_pinky: 'Right Pinky',
       photo_preview_right_pinky: uploadSuccess ? 'Upload Success' : 'Review Right Pinky',
 
+      left_hand_review: 'Left hand complete',
+      right_hand_review: 'Right hand complete',
+
       capture_confirm: undefined,
       processing: undefined,
       success: undefined,
@@ -458,6 +463,15 @@ export default function Home() {
         setUploadError('Missing image data. Please retake the photo.');
         return;
       }
+      if (previewPhotoIndex === 4) {
+  setCurrentScreen('left_hand_review');
+  return;
+}
+
+if (previewPhotoIndex === 9) {
+  setCurrentScreen('right_hand_review');
+  return;
+}
       const originalPreview = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result));
@@ -772,6 +786,25 @@ export default function Home() {
             errorMessage={uploadError}
           />
         );
+        case 'left_hand_review':
+  return (
+    <div style={{ textAlign: 'center', padding: '40px' }}>
+      <h2>Left hand complete</h2>
+      <button onClick={() => setCurrentScreen('photo_right_thumb')}>
+        Continue to right hand
+      </button>
+    </div>
+  );
+
+case 'right_hand_review':
+  return (
+    <div style={{ textAlign: 'center', padding: '40px' }}>
+      <h2>Right hand complete</h2>
+      <button onClick={() => setCurrentScreen('capture_confirm')}>
+        Review & submit
+      </button>
+    </div>
+  );
       case 'capture_confirm':
         return <CaptureConfirm photos={photos} onSubmit={handleSubmit} />;
       case 'processing':
