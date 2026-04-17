@@ -193,8 +193,8 @@ streamRef.current = null;
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment', // Use back camera on mobile
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 4032 },
+          height: { ideal: 3024 },
         },
       });
 
@@ -377,6 +377,7 @@ context.drawImage(
 );
 
       console.log('Photo captured - dimensions:', canvas.width, 'x', canvas.height);
+      console.log('Video dimensions:', video.videoWidth, 'x', video.videoHeight);
 
       // Convert canvas to blob, then to File
       canvas.toBlob(
