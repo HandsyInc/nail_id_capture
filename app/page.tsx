@@ -602,6 +602,36 @@ if (previewPhotoIndex === 9) {
     }
   };
 
+  const handleSubmitLeftHand = async () => {
+  if (!projectId) {
+  console.error('No projectId on left hand submit');
+  return;
+}
+
+  try {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('email', email);
+
+    // only send LEFT HAND (first 5 photos)
+    for (let i = 0; i < 5; i++) {
+      const photo = photos[i];
+      if (!photo?.file) continue;
+      formData.append('photos', photo.file, photo.file.name);
+    }
+
+    await fetch('/api/submit-photos', {
+      method: 'POST',
+      body: formData,
+    });
+
+    setCurrentScreen('photo_right_thumb');
+
+  } catch (err) {
+    console.error('Left hand submit failed', err);
+  }
+};
+
   const handleSubmit = async () => {
     if (!canSubmit || !projectId) return;
 
@@ -788,12 +818,30 @@ if (previewPhotoIndex === 9) {
         );
         case 'left_hand_review':
   return (
-    <div style={{ textAlign: 'center', padding: '40px' }}>
-      <h2>Left hand complete</h2>
-      <button onClick={() => setCurrentScreen('photo_right_thumb')}>
-        Continue to right hand
-      </button>
-    </div>
+    <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+  <h1 style={{ fontSize: '28px', marginBottom: '16px' }}>
+    Left hand complete
+  </h1>
+
+  <p style={{ fontSize: '16px', marginBottom: '32px', opacity: 0.8 }}>
+    We’ve saved your left hand. Now let’s capture your right hand.
+  </p>
+
+  <button
+    onClick={handleSubmitLeftHand}
+    style={{
+      backgroundColor: '#000',
+      color: '#fff',
+      padding: '14px 24px',
+      fontSize: '16px',
+      borderRadius: '8px',
+      border: 'none',
+      cursor: 'pointer'
+    }}
+  >
+    Continue to right hand
+  </button>
+</div>
   );
 
 case 'right_hand_review':
