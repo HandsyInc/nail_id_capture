@@ -606,8 +606,7 @@ export default function Home() {
           throw new Error(`Missing file for photo ${index + 1}`);
         }
 
-        const compressedFile = await compressImageFile(photo.file, 1000, 0.6);
-        formData.append('photos', compressedFile, compressedFile.name);
+        formData.append('photos', photo.file, photo.file.name);
       }
 
       const response = await fetch('/api/submit-photos', {
