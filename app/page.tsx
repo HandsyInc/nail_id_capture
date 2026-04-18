@@ -695,7 +695,7 @@ if (!emailRes.ok) {
 
             <div className="space-y-2 text-gray-300">
               <p>• A plain white sheet of standard printer paper (8.5 × 11)</p>
-              <p>• A credit, debit, or loyalty card</p>
+              <p>• A dark credit, debit, or loyalty card (not white)</p>
             </div>
 
             <button
