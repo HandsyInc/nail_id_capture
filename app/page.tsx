@@ -403,6 +403,9 @@ export default function Home() {
       }
 
       setProjectId(data.project_id);
+      const newNailId = `NAILID-${Math.floor(1000 + Math.random() * 9000)}`;
+      setNailId(newNailId); 
+
       // Reset state for a fresh run
       setPhotos([
         { file: null, preview: null, imageId: null },
@@ -520,7 +523,6 @@ export default function Home() {
 singlePhotoFormData.append('name', name);
 singlePhotoFormData.append('email', email);
 singlePhotoFormData.append('nailId', nailId || '');
-singlePhotoFormData.append('projectId', projectId);
 singlePhotoFormData.append('photos', photo.file, photo.file.name);
 singlePhotoFormData.append('hand', meta.hand);
 singlePhotoFormData.append('finger', meta.finger);
@@ -610,7 +612,7 @@ if (!emailRes.ok) {
   };
 
   const handleSubmit = async () => {
-  if (!projectId) return;
+  if (!name || !email || !nailId) return;
 
   setCurrentScreen('processing');
 
