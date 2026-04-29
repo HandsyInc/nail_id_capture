@@ -763,11 +763,11 @@ if (!emailRes.ok) {
   return (
     <div className="space-y-6 text-center px-4 pt-16">
       <h1 className="text-2xl font-bold text-gray-100">
-        Take 2 palm-up photos
+        Take 2 more photos, palm-up
       </h1>
 
       <p className="text-gray-300">
-        Take one photo of your left hand and one of your right hand.
+        Take one photo of your Left hand and one of your Right hand.
       </p>
 
       <p className="text-sm text-gray-400">
@@ -775,7 +775,7 @@ if (!emailRes.ok) {
       </p>
 
       <img
-        src="/palm-up-example.jpg"
+        src="/palm_up_example.jpg"
         alt="Palm-up hand photo"
         className="rounded-xl"
       />
