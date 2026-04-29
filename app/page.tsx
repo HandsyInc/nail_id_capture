@@ -40,6 +40,10 @@ export type ScreenName =
   | 'photo_preview_right_ring'
   | 'photo_right_pinky'
   | 'photo_preview_right_pinky'
+  | 'photo_left_palm_up'
+  | 'photo_preview_left_palm_up'
+  | 'photo_right_palm_up'
+  | 'photo_preview_right_palm_up'
   | 'capture_confirm'
   | 'processing'
   | 'success'
@@ -334,6 +338,12 @@ export default function Home() {
       photo_right_pinky: 'Right Pinky',
       photo_preview_right_pinky: uploadSuccess ? 'Upload Success' : 'Review Right Pinky',
 
+      photo_left_palm_up: 'Left Hand Palm-Up',
+      photo_preview_left_palm_up: uploadSuccess ? 'Upload Success' : 'Review Left Hand Palm-Up',
+
+      photo_right_palm_up: 'Right Hand Palm-Up',
+      photo_preview_right_palm_up: uploadSuccess ? 'Upload Success' : 'Review Right Hand Palm-Up',
+
 
       capture_confirm: undefined,
       processing: undefined,
@@ -363,6 +373,9 @@ export default function Home() {
       'photo_right_middle',
       'photo_right_ring',
       'photo_right_pinky',
+
+      'photo_left_palm_up',
+      'photo_right_palm_up',
 
       'capture_confirm',
     ];
@@ -570,6 +583,8 @@ if (!emailRes.ok) {
               'photo_right_middle',
               'photo_right_ring',
               'photo_right_pinky',
+              'photo_left_palm_up',
+              'photo_right_palm_up',
             ];
 
             setPreviewPhotoIndex(null);
@@ -607,6 +622,8 @@ if (!emailRes.ok) {
         'photo_right_middle',
         'photo_right_ring',
         'photo_right_pinky',
+        'photo_left_palm_up',
+        'photo_right_palm_up',
       ];
       setCurrentScreen(photoScreens[previewPhotoIndex]);
       setPreviewPhotoIndex(null);
@@ -712,7 +729,7 @@ if (!emailRes.ok) {
         return (
           <div className="space-y-6 text-center">
             <h1 className="text-2xl font-bold text-gray-100">
-              Set up each finger photo like this
+              Set up each finger - 10 photos total - like this
             </h1>
 
             <ul className="space-y-3 text-gray-300 text-sm text-left list-disc pl-5">
@@ -787,6 +804,8 @@ if (!emailRes.ok) {
       case 'photo_right_middle':
       case 'photo_right_ring':
       case 'photo_right_pinky':
+      case 'photo_left_palm_up':
+      case 'photo_right_palm_up':
         return (
           <PhotoCapture
             screenName={currentScreen}
@@ -804,6 +823,8 @@ if (!emailRes.ok) {
       case 'photo_preview_right_middle':
       case 'photo_preview_right_ring':
       case 'photo_preview_right_pinky':
+      case 'photo_preview_left_palm_up':
+      case 'photo_preview_right_palm_up':
         return (
           <PhotoPreview
             photoIndex={previewPhotoIndex ?? 0}
