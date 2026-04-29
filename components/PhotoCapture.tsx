@@ -129,7 +129,30 @@ const photoConfigs = {
       'Tap to focus before capture'
     ],
     helperText: 'Last one — make sure it’s sharp and clear.'
-  }
+  },
+  photo_left_palm_up: {
+  header: 'LEFT PALM-UP',
+  bodyCopy: [
+    'Flip your hand palm-up',
+    'Slightly curl your fingers so we can see the underside of your nails',
+    'Keep your hand relaxed',
+    'Hold your phone directly above your hand',
+    'Tap to focus before taking the photo',
+  ],
+  helperText: 'Make sure all nails are visible from underneath.',
+},
+
+photo_right_palm_up: {
+  header: 'RIGHT PALM-UP',
+  bodyCopy: [
+    'Flip your hand palm-up',
+    'Slightly curl your fingers so we can see the underside of your nails',
+    'Keep your hand relaxed',
+    'Hold your phone directly above your hand',
+    'Tap to focus before taking the photo',
+  ],
+  helperText: 'Make sure all nails are visible from underneath.',
+},
 };
 
 export default function PhotoCapture({
