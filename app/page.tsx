@@ -568,7 +568,7 @@ if (!emailRes.ok) {
         // Auto-continue after 2.5 seconds
         setTimeout(() => {
           // Move to next photo or confirmation
-          if (previewPhotoIndex < 9) {
+          if (previewPhotoIndex < 11) {
             const nextPhotoIndex = previewPhotoIndex + 1;
             setCurrentPhotoIndex(nextPhotoIndex);
 
