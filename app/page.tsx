@@ -18,6 +18,7 @@ export type ScreenName =
   | 'user_info'
   | 'capture_rules'
   | 'camera_rules'
+  | 'palm_up_rules'
   | 'capture_ready'
   | 'photo_left_thumb'
   | 'photo_preview_left_thumb'
@@ -299,6 +300,7 @@ export default function Home() {
       capture_entry: undefined,
       capture_rules: undefined,
       camera_rules: undefined,
+      palm_up_rules: undefined,
       capture_ready: undefined,
       user_info: undefined,
 
@@ -710,7 +712,7 @@ if (!emailRes.ok) {
         return (
           <div className="space-y-6 text-center">
             <h1 className="text-2xl font-bold text-gray-100">
-              Set up each photo like this
+              Set up each finger photo like this
             </h1>
 
             <ul className="space-y-3 text-gray-300 text-sm text-left list-disc pl-5">
@@ -733,13 +735,42 @@ if (!emailRes.ok) {
             />
 
             <button
-              onClick={() => setCurrentScreen('capture_ready')}
+              onClick={() => setCurrentScreen('palm_up_rules')}
               className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
             >
               Next
             </button>
           </div>
         );
+        case 'palm_up_rules':
+  return (
+    <div className="space-y-6 text-center px-4 pt-16">
+      <h1 className="text-2xl font-bold text-gray-100">
+        Take 2 palm-up photos
+      </h1>
+
+      <p className="text-gray-300">
+        Take one photo of your left hand and one of your right hand.
+      </p>
+
+      <p className="text-sm text-gray-400">
+        Flip your hand palm-up and slightly curl your fingers so we can see the underside of your nails.
+      </p>
+
+      <img
+        src="/palm-up-example.jpg"
+        alt="Palm-up hand photo"
+        className="rounded-xl"
+      />
+
+      <button
+        onClick={() => setCurrentScreen('capture_ready')}
+        className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-500 to-teal-400 text-white font-semibold text-lg"
+      >
+        Next
+      </button>
+    </div>
+  );
         case 'capture_ready':
   return (
     <CaptureReady

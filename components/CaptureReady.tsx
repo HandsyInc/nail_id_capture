@@ -4,17 +4,18 @@ interface CaptureReadyProps {
 
 export default function CaptureReady({ onNext }: CaptureReadyProps) {
   return (
-    <div className="space-y-6 text-center">
+    <div className="space-y-6 text-center pt-16 px-4">
       <h1 className="text-2xl sm:text-3xl font-bold text-gray-100">
         Take your photos first
       </h1>
 
       <p className="text-gray-300 max-w-md mx-auto">
-        Leave this page, take all 10 photos on your phone, then come back here when you’re ready to upload them.
+        Leave this page, take all 12 photos on your phone, then come back here when you’re ready to upload them.
       </p>
 
       <p className="text-sm text-gray-400 max-w-md mx-auto">
         Take them in order: Left hand (thumb → pinky), then Right hand (thumb → pinky).
+        Followed by each hand, palm up.
       </p>
 
       <button
