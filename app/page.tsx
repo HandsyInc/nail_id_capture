@@ -259,6 +259,8 @@ export default function Home() {
     { file: null, preview: null, imageId: null },
     { file: null, preview: null, imageId: null },
     { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
+    { file: null, preview: null, imageId: null },
   ]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [previewPhotoIndex, setPreviewPhotoIndex] = useState<number | null>(null);
@@ -433,6 +435,9 @@ export default function Home() {
         { file: null, preview: null, imageId: null },
         { file: null, preview: null, imageId: null },
         { file: null, preview: null, imageId: null },
+        { file: null, preview: null, imageId: null },
+        { file: null, preview: null, imageId: null },
+        
       ]);
       setCurrentPhotoIndex(0);
       setPreviewPhotoIndex(null);
