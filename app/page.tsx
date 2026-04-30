@@ -191,6 +191,10 @@ function getUploadMetadataForPhotoIndex(photoIndex: number) {
       return { hand: 'right', image_type: 'top_down', finger: 'ring' };
     case 9:
       return { hand: 'right', image_type: 'top_down', finger: 'pinky' };
+    case 10:
+      return { hand: 'left', image_type: 'palm_up', finger: 'palm_up' };
+    case 11:
+      return { hand: 'right', image_type: 'palm_up', finger: 'palm_up' };
     default:
       return { hand: 'left', image_type: 'top_down', finger: 'thumb' };
   }
