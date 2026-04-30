@@ -594,7 +594,14 @@ if (!emailRes.ok) {
 
             setPreviewPhotoIndex(null);
             setIsUploading(false);
-            setCurrentScreen(nextPhotoScreens[nextPhotoIndex]);
+            const nextScreen = nextPhotoScreens[nextPhotoIndex];
+
+if (!nextScreen) {
+  setCurrentScreen('capture_confirm');
+  return;
+}
+
+setCurrentScreen(nextScreen);
           } else {
             setPreviewPhotoIndex(null);
             setIsUploading(false);
