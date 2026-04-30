@@ -292,10 +292,10 @@ export default function Home() {
     }
   }, [projectId]);
 
-  const showProgress = currentScreen.startsWith('photo_');
+  const showProgress = currentScreen?.startsWith('photo_');
 
   const getCurrentPhotoNumber = () => {
-    if (currentScreen.startsWith('photo_preview_') && previewPhotoIndex !== null) {
+    if (currentScreen?.startsWith('photo_preview_') && previewPhotoIndex !== null) {
       return previewPhotoIndex + 1;
     }
     return currentPhotoIndex + 1;
