@@ -469,6 +469,8 @@ export default function Home() {
       'photo_preview_right_middle',
       'photo_preview_right_ring',
       'photo_preview_right_pinky',
+      'photo_preview_left_palm_up',
+      'photo_preview_right_palm_up',
     ];
 
     setCurrentScreen(previewScreens[currentPhotoIndex]);
