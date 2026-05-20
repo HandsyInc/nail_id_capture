@@ -38,3 +38,10 @@ next-env.d.ts
 openapi.json
 
 keys/
+.claude/
+pilot-samples/
+scripts/card_detection_probe/output/
+scripts/card_detection_probe/output-full/
+scripts/card_detection_probe/output-tuned/
+scripts/card_detection_probe/output-tuned-v2/
+scripts/card_detection_probe/output-edgeonly/

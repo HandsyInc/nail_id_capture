@@ -12,6 +12,7 @@ import SuccessScreen from '@/components/SuccessScreen';
 import ErrorScreen from '@/components/ErrorScreen';
 import ProcessingScreen from '@/components/ProcessingScreen';
 import ProgressIndicator from '@/components/ProgressIndicator';
+import { normalizeImageForUpload, fileToBase64 } from '@/lib/image-normalization';
 
 export type ScreenName =
   | 'capture_entry'
@@ -135,39 +136,18 @@ function formatApiErrorPayload(payload: any): string | null {
   return null;
 }
 
-async function getImageOrientationFromDataUrl(dataUrl: string): Promise<'portrait' | 'landscape'> {
-  const img = new Image();
-  const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
-    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-    img.onerror = () => reject(new Error('Unable to read image dimensions.'));
-    img.src = dataUrl;
-  });
-
-  return dims.h >= dims.w ? 'portrait' : 'landscape';
-}
-
-function validateImageBeforeUpload(file: File, preview: string) {
-  const allowedTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
-  if (!file.type || !allowedTypes.has(file.type)) {
-    throw new Error('Unsupported file type. Please use a JPG, PNG, or WebP image.');
-  }
-
-  if (file.size > MAX_IMAGE_BYTES) {
-    throw new Error('File size must be less than 10MB.');
-  }
-
-  if (!preview.startsWith('data:image/')) {
-    throw new Error('Invalid image data.');
-  }
-}
-
-function dataUrlToBase64(dataUrl: string): string {
-  const parts = dataUrl.split(',');
-  if (parts.length < 2) throw new Error('Invalid image encoding.');
-  const base64 = parts[1];
-  if (!base64) throw new Error('Invalid image encoding.');
-  return base64;
-}
+// Removed in the phase1/exif-normalization-bounded branch:
+//   - getImageOrientationFromDataUrl: read raw <img> naturalWidth/naturalHeight
+//     without honoring EXIF rotation, producing inconsistent orientation
+//     decisions for iPhone JPEGs (raw landscape pixels + EXIF rotate-90 flag).
+//   - dataUrlToBase64: replaced by `fileToBase64` from @/lib/image-normalization,
+//     which works on the normalized File's bytes verbatim rather than a
+//     potentially-re-encoded data URL.
+//   - validateImageBeforeUpload: type/size checks are now done in PhotoCapture
+//     pre-handoff and post-normalization in handleUsePhoto.
+// All three are superseded by `normalizeImageForUpload`, which produces a
+// File whose pixel orientation and metadata are self-consistent. See
+// lib/image-normalization.ts for the full rationale.
 
 function getUploadMetadataForPhotoIndex(photoIndex: number) {
   switch (photoIndex) {
@@ -200,50 +180,16 @@ function getUploadMetadataForPhotoIndex(photoIndex: number) {
   }
 }
 
-async function compressImageFile(
-  file: File,
-  maxWidth = 1000,
-  quality = 0.6
-): Promise<File> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Failed to read image file."));
-    reader.readAsDataURL(file);
-  });
-
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Failed to load image for compression."));
-    image.src = dataUrl;
-  });
-
-  const scale = Math.min(1, maxWidth / img.width);
-  const targetWidth = Math.round(img.width * scale);
-  const targetHeight = Math.round(img.height * scale);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = targetWidth;
-  canvas.height = targetHeight;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Failed to create canvas context.");
-
-  ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-
-  const blob = await new Promise<Blob | null>((resolve) => {
-    canvas.toBlob(resolve, "image/jpeg", quality);
-  });
-
-  if (!blob) throw new Error("Failed to compress image.");
-
-  const baseName = file.name.replace(/\.[^.]+$/, "");
-  return new File([blob], `${baseName}.jpg`, {
-    type: "image/jpeg",
-    lastModified: Date.now(),
-  });
-}
+// `compressImageFile` was removed in the phase1/exif-normalization-bounded
+// branch. It downsampled to a 1000px max width and re-encoded JPEG at 0.6
+// quality — a measurement-destroying combination of resample + heavy
+// compression. It was defined but never invoked. Removed outright rather
+// than left dormant to prevent any future code path from wiring it into
+// the measurement pipeline. DO NOT reintroduce a function with this
+// behavior in the capture or upload path. If a true upload-size constraint
+// is needed later, address it server-side or with an explicit, geometry-
+// preserving compression strategy that is reviewed against measurement
+// variance.
 export default function Home() {
   console.log('HOME COMPONENT IS RENDERING');
   const MAINTENANCE_MODE = false;
@@ -481,147 +427,208 @@ export default function Home() {
   };
 
   const handleUsePhoto = async () => {
-    if (previewPhotoIndex !== null) {
-      setUploadError(null);
+    if (previewPhotoIndex === null) return;
+    setUploadError(null);
 
-      const photo = photos[previewPhotoIndex];
-      if (!photo?.file || !photo.preview) {
-        setUploadError('Missing image data. Please retake the photo.');
-        return;
+    const photo = photos[previewPhotoIndex];
+    if (!photo?.file) {
+      setUploadError('Missing image data. Please retake the photo.');
+      return;
+    }
+    if (!projectId) {
+      setUploadError('Project is not initialized yet. Please go back and start the scan again.');
+      return;
+    }
+
+    const meta = getUploadMetadataForPhotoIndex(previewPhotoIndex);
+    const uploadStartedAt = Date.now();
+
+    // Structured log context. `[handsy.upload]` and `[handsy.email]` prefixes
+    // make the bounded-fix logs easy to grep in browser devtools and in
+    // Vercel logs while we verify the API path is reliable.
+    const logCtx = {
+      projectId,
+      previewPhotoIndex,
+      hand: meta.hand,
+      finger: meta.finger,
+      imageType: meta.image_type,
+    };
+    console.log('[handsy.upload] start', {
+      ...logCtx,
+      originalFileSize: photo.file.size,
+      originalFileType: photo.file.type,
+    });
+
+    setIsUploading(true);
+    try {
+      // Bake EXIF rotation into pixels and strip EXIF metadata.
+      // Result: the bytes sent below are pixel-orientation-correct with
+      // no orientation metadata remaining, so the client and the
+      // measurement service cannot disagree on which way the image is
+      // meant to be read. See lib/image-normalization.ts for full
+      // rationale.
+      const normalized = await normalizeImageForUpload(photo.file);
+
+      if (normalized.file.size > MAX_IMAGE_BYTES) {
+        throw new Error('Photo is larger than 10MB after normalization. Please retake.');
       }
-    
-      const originalPreview = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error('Failed to read original file.'));
-        reader.readAsDataURL(photo.file!);
+      if (normalized.orientation !== 'portrait') {
+        throw new Error('Please use portrait orientation. Rotate your phone and retake.');
+      }
+
+      console.log('[handsy.upload] normalized', {
+        ...logCtx,
+        normalizedWidth: normalized.width,
+        normalizedHeight: normalized.height,
+        normalizedFileSize: normalized.file.size,
       });
-      if (!photo?.file || !photo.preview) {
-        setUploadError('Missing image data. Please retake the photo.');
-        return;
+
+      const imageBase64 = await fileToBase64(normalized.file);
+      const base = getApiBase();
+      const url = new URL('/api/v1/upload', base).toString();
+      const body: UploadRequest = {
+        image_data: imageBase64,
+        image_metadata: {
+          project_id: projectId,
+          image_type: meta.image_type,
+          hand: meta.hand,
+          finger: meta.finger,
+          // Always 'portrait' — pixel orientation is now guaranteed by
+          // normalization. No metadata-vs-pixels mismatch is possible.
+          orientation: 'portrait',
+        },
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const payload = await readJsonSafely(res);
+        const details = formatApiErrorPayload(payload);
+        console.error('[handsy.upload] api_failure', {
+          ...logCtx,
+          httpStatus: res.status,
+          errorDetail: details,
+          durationMs: Date.now() - uploadStartedAt,
+        });
+        throw new Error(details ?? `Failed to upload photo (HTTP ${res.status}).`);
       }
 
-      if (!projectId) {
-        setUploadError('Project is not initialized yet. Please go back and start the scan again.');
-        return;
+      const data = (await res.json()) as UploadResponse;
+
+      // Absence of image_id on a 200 response is a soft failure: the API
+      // answered OK but we have no retrieval handle. Log it loudly so we
+      // can detect silent-success regressions during this bounded test.
+      if (!data?.image_id) {
+        console.warn('[handsy.upload] api_success_no_image_id', {
+          ...logCtx,
+          responseStatus: data?.status,
+          durationMs: Date.now() - uploadStartedAt,
+        });
+      } else {
+        console.log('[handsy.upload] api_success', {
+          ...logCtx,
+          imageId: data.image_id,
+          apiStatus: data.status,
+          durationMs: Date.now() - uploadStartedAt,
+        });
       }
 
-      setIsUploading(true);
-      try {
-        // Client-side validations before upload
-        validateImageBeforeUpload(photo.file, originalPreview);
-        const orientation = await getImageOrientationFromDataUrl(originalPreview);
+      // Mirror the normalized photo via email for human review / records.
+      const emailStartedAt = Date.now();
+      const emailFormData = new FormData();
+      emailFormData.append('name', name);
+      emailFormData.append('email', email);
+      emailFormData.append('nailId', nailId || '');
+      emailFormData.append('photos', normalized.file, normalized.file.name);
+      emailFormData.append('hand', meta.hand);
+      emailFormData.append('finger', meta.finger);
 
-        // Orientation validation
-        if (orientation !== 'portrait') {
-          throw new Error('Please use portrait orientation. Rotate your phone and retake the photo.');
-        }
+      const emailRes = await fetch('/api/submit-photos', {
+        method: 'POST',
+        body: emailFormData,
+      });
 
-        const base = getApiBase();
-        const url = new URL('/api/v1/upload', base).toString();
+      if (!emailRes.ok) {
+        const errorText = await emailRes.text();
+        console.error('[handsy.email] failure', {
+          ...logCtx,
+          httpStatus: emailRes.status,
+          errorBody: errorText,
+          durationMs: Date.now() - emailStartedAt,
+        });
+        throw new Error(`Failed to send photo email: ${errorText}`);
+      }
 
-        const meta = getUploadMetadataForPhotoIndex(previewPhotoIndex);
-        const body: UploadRequest = {
-          image_data: dataUrlToBase64(originalPreview),
-          image_metadata: {
-            project_id: projectId,
-            image_type: meta.image_type,
-            hand: meta.hand,
-            finger: meta.finger,
-            orientation,
-          },
+      console.log('[handsy.email] success', {
+        ...logCtx,
+        durationMs: Date.now() - emailStartedAt,
+      });
+
+      // Persist the normalized file back to state so any subsequent
+      // operation on this photo entry works on the normalized bytes.
+      setPhotos((prev) => {
+        const next = [...prev];
+        next[previewPhotoIndex] = {
+          ...next[previewPhotoIndex],
+          file: normalized.file,
+          imageId: data?.image_id ?? next[previewPhotoIndex].imageId,
         };
+        return next;
+      });
 
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+      setUploadSuccess(true);
 
-        if (!res.ok) {
-          const payload = await readJsonSafely(res);
-          const details = formatApiErrorPayload(payload);
-          throw new Error(details ?? `Failed to upload photo (HTTP ${res.status}).`);
-        }
+      // Auto-continue after 2.5 seconds.
+      setTimeout(() => {
+        if (previewPhotoIndex < 11) {
+          const nextPhotoIndex = previewPhotoIndex + 1;
+          setCurrentPhotoIndex(nextPhotoIndex);
 
-        const data = (await res.json()) as UploadResponse;
-        const singlePhotoFormData = new FormData();
-singlePhotoFormData.append('name', name);
-singlePhotoFormData.append('email', email);
-singlePhotoFormData.append('nailId', nailId || '');
-singlePhotoFormData.append('photos', photo.file, photo.file.name);
-singlePhotoFormData.append('hand', meta.hand);
-singlePhotoFormData.append('finger', meta.finger);
+          const nextPhotoScreens: ScreenName[] = [
+            'photo_left_thumb',
+            'photo_left_index',
+            'photo_left_middle',
+            'photo_left_ring',
+            'photo_left_pinky',
+            'photo_right_thumb',
+            'photo_right_index',
+            'photo_right_middle',
+            'photo_right_ring',
+            'photo_right_pinky',
+            'photo_left_palm_up',
+            'photo_right_palm_up',
+          ];
 
-const emailRes = await fetch('/api/submit-photos', {
-  method: 'POST',
-  body: singlePhotoFormData,
-});
+          setPreviewPhotoIndex(null);
+          setIsUploading(false);
+          const nextScreen = nextPhotoScreens[nextPhotoIndex];
 
-if (!emailRes.ok) {
-  const errorText = await emailRes.text();
-  throw new Error(`Failed to send photo email: ${errorText}`);
-}
-
-        // Save returned image_id when available
-        setPhotos((prev) => {
-          const next = [...prev];
-          next[previewPhotoIndex] = {
-            ...next[previewPhotoIndex],
-            imageId: data?.image_id ?? next[previewPhotoIndex].imageId,
-          };
-          return next;
-        });
-
-        // Show success state on preview
-        setUploadSuccess(true);
-
-        // Auto-continue after 2.5 seconds
-        setTimeout(() => {
-          // Move to next photo or confirmation
-          if (previewPhotoIndex < 11) {
-            const nextPhotoIndex = previewPhotoIndex + 1;
-            setCurrentPhotoIndex(nextPhotoIndex);
-
-            const nextPhotoScreens: ScreenName[] = [
-              'photo_left_thumb',
-              'photo_left_index',
-              'photo_left_middle',
-              'photo_left_ring',
-              'photo_left_pinky',
-              'photo_right_thumb',
-              'photo_right_index',
-              'photo_right_middle',
-              'photo_right_ring',
-              'photo_right_pinky',
-              'photo_left_palm_up',
-              'photo_right_palm_up',
-            ];
-
-            setPreviewPhotoIndex(null);
-            setIsUploading(false);
-            const nextScreen = nextPhotoScreens[nextPhotoIndex];
-
-if (!nextScreen) {
-  setCurrentScreen('capture_confirm');
-  return;
-}
-
-setCurrentScreen(nextScreen);
-          } else {
-            setPreviewPhotoIndex(null);
-            setIsUploading(false);
+          if (!nextScreen) {
             setCurrentScreen('capture_confirm');
+            return;
           }
-          setUploadSuccess(false);
-        }, 2500);
-            } catch (error: any) {
-        console.error('Photo upload/email failed:', error);
-        setUploadError('We couldn’t save this photo right now. Please try again.');
-        return;
-      } finally {
-        setIsUploading(false);
-      }
+
+          setCurrentScreen(nextScreen);
+        } else {
+          setPreviewPhotoIndex(null);
+          setIsUploading(false);
+          setCurrentScreen('capture_confirm');
+        }
+        setUploadSuccess(false);
+      }, 2500);
+    } catch (error: any) {
+      console.error('[handsy.upload] failure', {
+        ...logCtx,
+        message: error?.message ?? String(error),
+        durationMs: Date.now() - uploadStartedAt,
+      });
+      setUploadError(error?.message ?? 'We couldn’t save this photo right now. Please try again.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
