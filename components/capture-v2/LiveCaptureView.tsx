@@ -1,10 +1,17 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   normalizeImageForUpload,
   fileToDataUrl,
 } from '@/lib/image-normalization';
+import CardOverlay from './CardOverlay';
+import type { Detection } from '@/lib/capture-v2/card-detector';
+import {
+  computeGuidance,
+  GuidanceIssue,
+  GuidanceState,
+} from '@/lib/capture-v2/capture-guidance';
 
 /**
  * Diagnostics surfaced after a successful capture so we can verify on real
@@ -87,12 +94,79 @@ export default function LiveCaptureView({ onPhotoTaken }: Props) {
   const [streamSettings, setStreamSettings] =
     useState<MediaTrackSettings | null>(null);
 
+  // Guidance state for the live prompt. Initialized to the no-card state so
+  // the pill has something to say from the moment the camera comes online,
+  // even before the detector's first callback lands.
+  const [guidance, setGuidance] = useState<GuidanceState>(() =>
+    computeGuidance(null)
+  );
+
+  // Hysteresis refs (see handleDetection). Kept as refs not state so the
+  // detector callback can read them without forcing rerenders. `undefined`
+  // is the "no committed reading yet" sentinel — distinct from `null`,
+  // which is a legitimate "ready" issue.
+  const committedIssueRef = useRef<GuidanceIssue | null | undefined>(undefined);
+  const pendingIssueRef = useRef<GuidanceIssue | null | undefined>(undefined);
+
   // Tear down the MediaStream on unmount so the camera indicator goes off.
   useEffect(() => {
     return () => {
       stopStream();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reset hysteresis whenever we leave the streaming state — when the user
+  // comes back, the prompt should start from "looking for the card" rather
+  // than whatever the last frame happened to say.
+  useEffect(() => {
+    if (status !== 'streaming') {
+      committedIssueRef.current = undefined;
+      pendingIssueRef.current = undefined;
+      setGuidance(computeGuidance(null));
+    }
+  }, [status]);
+
+  /**
+   * Detection callback: turn the latest Detection into guidance, with a
+   * 2-frame hysteresis so the pill doesn't flicker on borderline frames.
+   *
+   * The rule:
+   *   - First reading: commit immediately so the user sees something
+   *     quickly.
+   *   - Reading matches what's currently displayed: commit (keeps the
+   *     metrics fresh; cancels any pending change-of-issue).
+   *   - Reading differs from displayed AND matches the previous "pending"
+   *     reading: commit the new state — we've seen the same new state
+   *     twice in a row, so it's not a single-frame blip.
+   *   - Reading differs from displayed and from pending: record it as
+   *     the new pending and keep displaying the old state.
+   *
+   * At CardOverlay's ~4Hz callback rate this gives a minimum 250ms hold
+   * before switching, which is enough to feel stable without feeling laggy.
+   */
+  const handleDetection = useCallback((detection: Detection | null) => {
+    const next = computeGuidance(detection);
+    const committed = committedIssueRef.current;
+
+    if (committed === undefined) {
+      committedIssueRef.current = next.issue;
+      pendingIssueRef.current = undefined;
+      setGuidance(next);
+      return;
+    }
+    if (next.issue === committed) {
+      pendingIssueRef.current = undefined;
+      setGuidance(next);
+      return;
+    }
+    if (next.issue === pendingIssueRef.current) {
+      committedIssueRef.current = next.issue;
+      pendingIssueRef.current = undefined;
+      setGuidance(next);
+      return;
+    }
+    pendingIssueRef.current = next.issue;
   }, []);
 
   function stopStream() {
@@ -283,6 +357,16 @@ export default function LiveCaptureView({ onPhotoTaken }: Props) {
 
   // Streaming or capturing — render the video preview either way; only the
   // capture button's enabled state changes.
+  //
+  // The CardOverlay sits on top of the <video> element via absolute
+  // positioning. It samples the live stream and draws a quadrilateral
+  // when a card is detected, but it does NOT touch the capture path —
+  // the snapshot below still reads from `video` at full sensor resolution
+  // and ignores anything the overlay drew. This keeps the dimensions-
+  // preserved guarantee from earlier increments intact.
+  //
+  // The overlay is paused (`active={false}`) the moment we start
+  // capturing so we don't waste cycles on detection while normalizing.
   return (
     <div className="space-y-4">
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black aspect-[3/4]">
@@ -293,6 +377,12 @@ export default function LiveCaptureView({ onPhotoTaken }: Props) {
           muted
           autoPlay
         />
+        <CardOverlay
+          videoRef={videoRef}
+          active={status === 'streaming'}
+          onDetection={handleDetection}
+        />
+        {status === 'streaming' && <GuidancePill guidance={guidance} />}
         {status === 'requesting' && (
           <div className="absolute inset-0 flex items-center justify-center text-white/80 text-sm bg-black/60">
             Requesting camera access&hellip;
@@ -324,6 +414,47 @@ export default function LiveCaptureView({ onPhotoTaken }: Props) {
           {streamSettings.facingMode ? ` · ${streamSettings.facingMode}` : ''}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Top-of-frame pill showing the current guidance prompt.
+ *
+ * Color rules:
+ *   - 'no-card' (waiting for the user to bring a card into frame) → slate.
+ *     Deliberately neutral, not alarming — this is the expected initial
+ *     state, not an error.
+ *   - any other warn issue → amber. Conveys "something needs adjusting"
+ *     without the urgency of red.
+ *   - ok / ready → emerald. Visual signal the user can capture now (even
+ *     though the button isn't yet gated on this — capture pipeline is
+ *     untouched per the current increment).
+ *
+ * pointer-events-none so the pill never intercepts taps meant for the
+ * video or the capture button beneath it.
+ *
+ * z-20 is load-bearing on iOS Safari. Video and canvas siblings get
+ * promoted to their own GPU compositing layers and the pill (with no
+ * explicit z-index) was rendering behind them despite being later in
+ * document order. The dev chip inside CardOverlay's fragment isn't
+ * affected because it shares the canvas's layer. Make this explicit
+ * before something else later in the layout decides it wants the same
+ * stacking spot.
+ */
+function GuidancePill({ guidance }: { guidance: GuidanceState }) {
+  const isNoCard = guidance.issue === 'no-card';
+  const bgClass = isNoCard
+    ? 'bg-slate-800/85'
+    : guidance.level === 'ok'
+      ? 'bg-emerald-500/90'
+      : 'bg-amber-500/95';
+
+  return (
+    <div
+      className={`absolute z-20 top-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full backdrop-blur-sm shadow-lg text-white text-sm font-medium pointer-events-none transition-colors max-w-[90%] text-center ${bgClass}`}
+    >
+      {guidance.message}
     </div>
   );
 }
