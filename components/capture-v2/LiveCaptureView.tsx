@@ -6,7 +6,11 @@ import {
   fileToDataUrl,
 } from '@/lib/image-normalization';
 import CardOverlay from './CardOverlay';
-import type { Detection } from '@/lib/capture-v2/card-detector';
+import { detectCard, type Detection } from '@/lib/capture-v2/card-detector';
+import {
+  computeCardHomography,
+  type CardHomography,
+} from '@/lib/capture-v2/card-homography';
 import {
   computeGuidance,
   GuidanceIssue,
@@ -33,6 +37,25 @@ export type CaptureDiagnostics = {
   normalizedOrientation: 'portrait' | 'landscape';
   capturedAtMs: number;
   captureLatencyMs: number;
+  /**
+   * Card-plane homography computed from a card detection run against the
+   * captured frame's pixel data (not the live overlay's downsampled
+   * preview frame). Null when no card was detected in the captured frame
+   * or when the corners produced a degenerate homography.
+   *
+   * Metadata only — this does not affect the captured bytes or any
+   * downstream measurement behaviour. Surfacing it here lets testbed
+   * captures carry the geometry information we will eventually use to
+   * retire the camera-to-card distance assumption.
+   */
+  cardHomography: CardHomography | null;
+  /**
+   * Convenience mirror of `cardHomography.residualPx` — the max corner
+   * reprojection error in pixels. Top-level so the dev diagnostics panel
+   * can surface it without having to reach into the matrix payload.
+   * Null when `cardHomography` is null.
+   */
+  homographyResidualPx: number | null;
 };
 
 type Status =
@@ -267,6 +290,35 @@ export default function LiveCaptureView({ onPhotoTaken }: Props) {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(video, 0, 0, width, height);
 
+      // Capture-time geometry metadata. We re-run the detector on the
+      // captured frame (not on the live preview's downsampled sample
+      // canvas) so the resulting corners — and the homography built from
+      // them — are in the coordinate space of the bytes actually leaving
+      // this component. For canvas-derived captures the normalization
+      // path is a re-encode at 1:1 dimensions, so these coords map 1:1
+      // onto the normalized image consumers will see downstream.
+      //
+      // Best-effort: detection or homography failure must not block the
+      // capture, so both fields fall to null in that case. The capture
+      // path below this point is unchanged.
+      let cardHomography: CardHomography | null = null;
+      let homographyResidualPx: number | null = null;
+      try {
+        const captured = ctx.getImageData(0, 0, width, height);
+        const detection = detectCard(captured);
+        if (detection) {
+          const h = computeCardHomography(detection.corners);
+          cardHomography = h;
+          homographyResidualPx = h.residualPx;
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[LiveCaptureView] capture-time homography metadata failed:',
+          err
+        );
+      }
+
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob(
           (b) =>
@@ -305,6 +357,8 @@ export default function LiveCaptureView({ onPhotoTaken }: Props) {
         normalizedOrientation: normalized.orientation,
         capturedAtMs: ts,
         captureLatencyMs: Math.round(performance.now() - startMs),
+        cardHomography,
+        homographyResidualPx,
       };
 
       onPhotoTaken(normalized.file, preview, diagnostics);

@@ -155,6 +155,20 @@ function CapturedPanel({
             value={dimensionsMatch ? 'yes (1:1)' : 'NO — investigate'}
             warn={!dimensionsMatch}
           />
+          <DiagRow
+            label="Card homography"
+            value={
+              diagnostics.cardHomography
+                ? `present · residual ${formatResidual(
+                    diagnostics.homographyResidualPx
+                  )} px`
+                : 'absent (no card detected at capture)'
+            }
+            warn={
+              diagnostics.cardHomography !== null &&
+              (diagnostics.homographyResidualPx ?? 0) > 1
+            }
+          />
         </div>
 
         <details className="mt-4 text-xs text-white/60">
@@ -165,6 +179,27 @@ function CapturedPanel({
             {diagnostics.userAgent}
           </p>
         </details>
+
+        {diagnostics.cardHomography && (
+          <details className="mt-2 text-xs text-white/60">
+            <summary className="cursor-pointer hover:text-white/80">
+              Card homography matrices (metadata only)
+            </summary>
+            <div className="mt-2 font-mono leading-5 space-y-3">
+              <div>
+                <div className="text-white/50 mb-1">cardToImage (mm → px)</div>
+                <MatrixReadout matrix={diagnostics.cardHomography.cardToImage} />
+              </div>
+              <div>
+                <div className="text-white/50 mb-1">imageToCard (px → mm)</div>
+                <MatrixReadout matrix={diagnostics.cardHomography.imageToCard} />
+              </div>
+              <div className="text-white/50">
+                residualPx = {formatResidual(diagnostics.homographyResidualPx)}
+              </div>
+            </div>
+          </details>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
@@ -206,4 +241,49 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+/**
+ * Compact display for the corner-reprojection residual. Captures on real
+ * devices should sit at machine-epsilon (≈1e-13) for clean detections;
+ * exponential form keeps the magnitude readable across that range.
+ */
+function formatResidual(residual: number | null): string {
+  if (residual === null || !Number.isFinite(residual)) return '—';
+  if (residual === 0) return '0';
+  return residual.toExponential(2);
+}
+
+/**
+ * Three-row monospace readout of a 3×3 matrix. Used only by the dev
+ * diagnostics panel; we render the raw numbers so a tester can paste
+ * them into a spreadsheet or notebook for offline validation against
+ * the corresponding captured image.
+ */
+function MatrixReadout({
+  matrix,
+}: {
+  matrix: [
+    [number, number, number],
+    [number, number, number],
+    [number, number, number],
+  ];
+}) {
+  return (
+    <div className="text-white/80">
+      {matrix.map((row, i) => (
+        <div key={i}>
+          [{' '}
+          {row
+            .map((v) =>
+              Math.abs(v) >= 1000 || (Math.abs(v) > 0 && Math.abs(v) < 0.01)
+                ? v.toExponential(4)
+                : v.toFixed(6)
+            )
+            .join('  ')}{' '}
+          ]
+        </div>
+      ))}
+    </div>
+  );
 }
