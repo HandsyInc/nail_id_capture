@@ -1,12 +1,21 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Enable HTTPS in development for camera access
-  // Note: You may need to install @next/bundle-analyzer or use a tool like mkcert
-  // For now, using localhost should work for camera access
-  //
-  // Expose API base URL to the browser (public)
   env: {
     API_ENDPOINT: process.env.API_ENDPOINT,
+  },
+  async headers() {
+    return [
+      {
+        // Apply to both the capture routes so the policy travels with any
+        // page that calls getUserMedia, not just capture-v2.
+        source: '/:path(capture.*)',
+        headers: [
+          // camera=* allows this page to request camera access.
+          // microphone=() blocks microphone — we never request it.
+          { key: 'Permissions-Policy', value: 'camera=*, microphone=()' },
+        ],
+      },
+    ];
   },
 }
 

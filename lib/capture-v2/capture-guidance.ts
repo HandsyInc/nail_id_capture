@@ -46,22 +46,40 @@ import type { Detection } from './card-detector';
  * The target band for `framePct`. Inside this band, distance is "good".
  * Outside, we prompt the user to move.
  *
- * Initial values: the pilot dataset's frame_width_pct distribution centered
- * around 40–65%. We pick a slightly tighter inner band so the guidance
- * nudges users toward the sweet spot of that distribution rather than
- * accepting anything that happened to occur in pilot.
+ * Lower-bound rationale (geometry-calibrated, device testing pending):
+ *   A standard iPhone main camera (~77° diagonal FOV, 4:3 sensor portrait)
+ *   at 210 mm (backend nominal) produces framePct ≈ 43%. The natural
+ *   "paper-fills-frame" hold distance is 219–226 mm → framePct ≈ 39–41%,
+ *   right at the former 40% boundary. Pilot data confirmed this: 16/59
+ *   photos landed at 37–39% (p25 = 39%). Setting 35% (↔ D ≈ 256 mm)
+ *   accepts the real natural hold distance and provides a comfortable
+ *   margin above 210 mm while still blocking genuinely too-far captures.
+ *   TUNE-ME once device-test framePct readings confirm the hold distance.
+ *
+ * Upper bound: 70% ↔ D ≈ 128 mm — legitimately too close. TUNE-ME.
  */
-export const TARGET_FRAME_PCT_MIN = 40; // TUNE-ME
+export const TARGET_FRAME_PCT_MIN = 35; // TUNE-ME — calibrated from pilot geometry
 export const TARGET_FRAME_PCT_MAX = 70; // TUNE-ME
 
 /**
- * Asymmetric deadband on each side of the target. We only fire the prompt
- * once the user is meaningfully outside the band, not the moment they
- * cross the target boundary — otherwise the prompt would oscillate as
- * the user hovers near the edge.
+ * Prompt thresholds — must stay equal to TARGET_FRAME_PCT_MIN/MAX.
+ *
+ * These used to carry a 10% deadband (30 / 80) on the theory that a buffer
+ * between "target" and "warn" would prevent the guidance pill from oscillating
+ * near the boundary. That role is now filled by the 2-frame hysteresis in
+ * LiveCaptureView's handleDetection callback: the same new issue must appear
+ * in two consecutive ~4Hz frames before the committed guidance state changes.
+ * The hysteresis is the right place for boundary stability — the deadband was
+ * a second, redundant mechanism that happened to let captures through at
+ * distances outside the validated range (e.g. framePct = 75% passed 'ok'
+ * even though TARGET_FRAME_PCT_MAX = 70).
+ *
+ * With the deadband removed, guidance.level === 'ok' ↔ framePct ∈ [35, 70],
+ * which is the device-calibrated measurement range. Captures outside that
+ * range are blocked by the captureReady gate.
  */
-export const FAR_PROMPT_BELOW = 30; // TUNE-ME — below this %, say "move closer"
-export const CLOSE_PROMPT_ABOVE = 80; // TUNE-ME — above this %, say "move back"
+export const FAR_PROMPT_BELOW = 35; // must equal TARGET_FRAME_PCT_MIN
+export const CLOSE_PROMPT_ABOVE = 70; // must equal TARGET_FRAME_PCT_MAX
 
 /**
  * Off-center threshold. If the closest corner gets within this fraction
@@ -137,6 +155,32 @@ export const OFF_PAPER_MIN_THRESHOLD = 170; // TUNE-ME — gray-units floor for 
 export const OFF_PAPER_SPREAD_THRESHOLD = 50; // TUNE-ME — gray-units gap min→max
 
 // ---------------------------------------------------------------------------
+// Curl-shot thresholds
+// ---------------------------------------------------------------------------
+
+/**
+ * In a curl (end-on) shot the user points the camera at the fingertip. The
+ * reference card is in frame for scale but naturally appears much smaller
+ * than it does in a planar (palm-up) shot — the card is at a greater
+ * effective angle and often further from the camera's optical axis.
+ *
+ * Consequence: the planar framePct thresholds (30–80%) are wrong for curl
+ * shots and will almost always fire "move closer" or "move back" when the
+ * user is actually positioned correctly. The curl guidance uses a different,
+ * much wider acceptance band.
+ *
+ * Additionally: in a curl shot "hold the phone flat" is meaningless because
+ * the camera must be tilted toward the fingertip, so the tilt check is
+ * suppressed entirely. Off-paper is also irrelevant — the card in a curl
+ * setup is not necessarily on paper and the surround-mean comparison would
+ * produce false positives.
+ *
+ * The remaining checks (no-card, off-center) still apply.
+ */
+export const CURL_FAR_BELOW  = 5;  // TUNE-ME — below 5% framePct: card probably not in frame
+export const CURL_CLOSE_ABOVE = 95; // TUNE-ME — above 95%: card oddly dominant, probably wrong shot
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -156,6 +200,24 @@ export type GuidanceState = {
   issue: GuidanceIssue | null;
   /** Short user-facing prompt — render this verbatim in the UI. */
   message: string;
+  /**
+   * True when it is safe to fire the shutter.
+   *
+   * This is the canonical gate for the capture button and for the
+   * capturePhoto() defense-in-depth check. It is true if and only if
+   * level === 'ok' (i.e. issue === null). Using a named boolean rather than
+   * comparing level directly makes intent explicit and makes it impossible
+   * to accidentally allow captures during the warn states that a loose
+   * level-string comparison might miss.
+   *
+   * For palm-up shots (computeGuidance):
+   *   true ↔ card on paper, centered, framePct ∈ [35 %, 70 %], tilt < 7°
+   *
+   * For curl shots (computeCurlGuidance):
+   *   true ↔ card detected, centered, framePct ∈ (5 %, 95 %)
+   *   (tilt and off-paper checks suppressed — camera must point end-on)
+   */
+  captureReady: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -174,6 +236,7 @@ export function computeGuidance(detection: Detection | null): GuidanceState {
       level: 'warn',
       issue: 'no-card',
       message: 'Place the card flat on the paper',
+      captureReady: false,
     };
   }
 
@@ -199,6 +262,7 @@ export function computeGuidance(detection: Detection | null): GuidanceState {
       level: 'warn',
       issue: 'card-off-paper',
       message: 'Place the card fully on the paper',
+      captureReady: false,
     };
   }
 
@@ -210,24 +274,32 @@ export function computeGuidance(detection: Detection | null): GuidanceState {
       level: 'warn',
       issue: 'off-center',
       message: 'Center the card',
+      captureReady: false,
     };
   }
 
-  // 3. Too far. Below the warn threshold, fire the prompt.
+  // 3. Too far. FAR_PROMPT_BELOW === TARGET_FRAME_PCT_MIN (40%) — the
+  //    prompt threshold and the validated measurement range are the same
+  //    boundary. The 2-frame hysteresis in handleDetection prevents
+  //    flickering at this edge; no separate deadband is needed.
   if (framePct < FAR_PROMPT_BELOW) {
     return {
       level: 'warn',
       issue: 'too-far',
       message: 'Move closer',
+      captureReady: false,
     };
   }
 
-  // 4. Too close.
+  // 4. Too close. CLOSE_PROMPT_ABOVE === TARGET_FRAME_PCT_MAX (70%).
+  //    Same rationale as above: hysteresis handles the boundary; no
+  //    deadband required.
   if (framePct > CLOSE_PROMPT_ABOVE) {
     return {
       level: 'warn',
       issue: 'too-close',
       message: 'Move back',
+      captureReady: false,
     };
   }
 
@@ -239,18 +311,93 @@ export function computeGuidance(detection: Detection | null): GuidanceState {
       level: 'warn',
       issue: 'tilted',
       message: 'Hold the phone flat',
+      captureReady: false,
     };
   }
 
-  // 6. All gates clear — card on paper, well-positioned, well-sized,
-  //    flat. Note that framePct may still be between TARGET_*_MIN/MAX and
-  //    the warn thresholds — that's the intentional deadband. The user
-  //    gets a green pill there even though they're not at the exact
-  //    center of the target; the asymmetric thresholds are what keeps
-  //    the pill from flickering as they move.
+  // 6. All gates clear — card on paper, centered, framePct ∈ [40 %, 70 %],
+  //    tilt < 7°. captureReady: true opens the shutter gate.
   return {
     level: 'ok',
     issue: null,
     message: 'Looks good — ready to capture',
+    captureReady: true,
+  };
+}
+
+/**
+ * Compute guidance state for a curl (end-on) shot.
+ *
+ * The curl shot is taken pointing the camera at the fingertip to capture the
+ * nail's cross-sectional arc. Guidance priorities and thresholds differ from
+ * the planar shot in three ways:
+ *
+ *   1. framePct thresholds are much wider. The reference card appears at a
+ *      much smaller fraction of the frame in an end-on setup. The old 30–80%
+ *      band would almost always fire "move closer" or "move back" when the
+ *      user is correctly positioned; the curl thresholds use 5–95%.
+ *
+ *   2. The tilt check is suppressed. Pointing the camera at the fingertip
+ *      inherently tilts the phone — "hold the phone flat" would be wrong
+ *      advice in this context.
+ *
+ *   3. The off-paper check is suppressed. Card placement against paper is
+ *      a planar-shot concern; in curl framing the card may rest against a
+ *      different surface and the surround-mean comparison would produce
+ *      false positives.
+ *
+ * When the card is absent, the message prompts specifically for end-on
+ * framing rather than the generic planar-shot card-placement instruction.
+ */
+export function computeCurlGuidance(detection: Detection | null): GuidanceState {
+  if (!detection) {
+    return {
+      level: 'warn',
+      issue: 'no-card',
+      message: 'Point camera at your fingertip end-on, card visible',
+      captureReady: false,
+    };
+  }
+
+  const { framePct, minCornerEdgeFrac } = detection.metrics;
+
+  // Off-center: a clipped card means we can't compute scale. Same logic
+  // as the planar check — fix this before anything else.
+  if (minCornerEdgeFrac < OFF_CENTER_THRESHOLD) {
+    return {
+      level: 'warn',
+      issue: 'off-center',
+      message: 'Center the card in frame',
+      captureReady: false,
+    };
+  }
+
+  // Distance: only fire at the extreme ends. In curl framing the card
+  // legitimately occupies 5–90% of frame width depending on distance
+  // and angle; only the degenerate extremes are worth prompting.
+  if (framePct < CURL_FAR_BELOW) {
+    return {
+      level: 'warn',
+      issue: 'too-far',
+      message: 'Move card closer so it fills more of the frame',
+      captureReady: false,
+    };
+  }
+  if (framePct > CURL_CLOSE_ABOVE) {
+    return {
+      level: 'warn',
+      issue: 'too-close',
+      message: 'Move back slightly',
+      captureReady: false,
+    };
+  }
+
+  // Tilt and off-paper checks intentionally omitted — see doc comment.
+
+  return {
+    level: 'ok',
+    issue: null,
+    message: 'Looks good — hold still to capture',
+    captureReady: true,
   };
 }
