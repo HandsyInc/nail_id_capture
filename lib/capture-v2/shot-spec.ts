@@ -178,14 +178,14 @@ export const CAPTURE_SEQUENCE: readonly ShotSpec[] = [
     extractsIC: ['index', 'middle', 'ring', 'pinky'], expectedArcCount: 4,
     icArchitecturePending: false,
     label: 'Left — four-finger curl',
-    instruction: 'Point your left index, middle, ring, and pinky toward the camera, end-on. Keep the reference card visible in frame.',
+    instruction: 'Hold dark cloth or paper behind your left hand. Curl your index, middle, ring, and pinky so all four fingertips point straight at the camera — nails facing you, tips level with each other. Keep the reference card visible in frame.',
   },
   {
     shotType: 'curl-four-finger', hand: 'right', finger: null,
     extractsIC: ['index', 'middle', 'ring', 'pinky'], expectedArcCount: 4,
     icArchitecturePending: false,
     label: 'Right — four-finger curl',
-    instruction: 'Point your right index, middle, ring, and pinky toward the camera, end-on. Keep the reference card visible in frame.',
+    instruction: 'Hold dark cloth or paper behind your right hand. Curl your index, middle, ring, and pinky so all four fingertips point straight at the camera — nails facing you, tips level with each other. Keep the reference card visible in frame.',
   },
 
   // ── Thumb curl shots — IC extraction architecture pending ───────────────
@@ -198,14 +198,14 @@ export const CAPTURE_SEQUENCE: readonly ShotSpec[] = [
     extractsIC: ['thumb'], expectedArcCount: 1,
     icArchitecturePending: true,
     label: 'Left — thumb curl',
-    instruction: 'Extend your left thumb toward the camera, end-on. Keep the reference card visible in frame.',
+    instruction: 'Hold a dark surface behind your left hand. Extend your left thumb end-on toward the camera. Keep the reference card visible in frame.',
   },
   {
     shotType: 'curl-thumb', hand: 'right', finger: null,
     extractsIC: ['thumb'], expectedArcCount: 1,
     icArchitecturePending: true,
     label: 'Right — thumb curl',
-    instruction: 'Extend your right thumb toward the camera, end-on. Keep the reference card visible in frame.',
+    instruction: 'Hold a dark surface behind your right hand. Extend your right thumb end-on toward the camera. Keep the reference card visible in frame.',
   },
 ];
 

@@ -12,12 +12,14 @@ import type {
   SagittaResult,
   MultiArcResult,
   ArcCandidateDebug,
+  ArcPipelineCounts,
 } from '@/lib/capture-v2/nail-sagitta';
 import {
   CAPTURE_SEQUENCE,
   isCurlShot,
   icTargetLabel,
   sectionLabel,
+  type Finger,
   type ShotSpec,
 } from '@/lib/capture-v2/shot-spec';
 
@@ -94,9 +96,26 @@ async function downloadSession(captures: SessionCapture[]): Promise<void> {
     images.file(filename, base64, { base64: true, compression: 'STORE' });
   }
 
+  const sessionTimestamp = new Date().toISOString();
+
+  // Build a palm-up width lookup: hand → finger → chordWidthMm.
+  // Currently null for all fingers because palm-up shots do not run arc
+  // extraction (nailSagitta is always null for palm-up). When palm-up W
+  // extraction is enabled, this map will populate automatically and
+  // correctedICMm will be computed from it.
+  const palmUpWidths: Record<string, Record<string, number | null>> = {
+    left: { thumb: null, index: null, middle: null, ring: null, pinky: null },
+    right: { thumb: null, index: null, middle: null, ring: null, pinky: null },
+  };
+  for (const c of captures) {
+    if (c.spec.shotType === 'palm-up' && c.spec.finger && c.diagnostics.nailSagitta) {
+      palmUpWidths[c.spec.hand][c.spec.finger] = c.diagnostics.nailSagitta.chordWidthMm;
+    }
+  }
+
   // Session metadata — one row per capture for easy spreadsheet import
   const sessionMeta = {
-    sessionTimestamp: new Date().toISOString(),
+    sessionTimestamp,
     captureCount: captures.length,
     shots: captures.map((c) => ({
       stepNumber: c.stepIndex + 1,
@@ -115,9 +134,152 @@ async function downloadSession(captures: SessionCapture[]): Promise<void> {
       dimensionsPreserved:
         c.diagnostics.normalizedWidth > 0 &&
         c.diagnostics.normalizedWidth === (c.diagnostics.actualSettings as any)?.width,
+      curlResults: (() => {
+        if (c.spec.shotType !== 'curl-four-finger') return null;
+        const mr = c.diagnostics.multiArcResult;
+        if (!mr) return null;
+        const { accepted, allCandidatesDebug, pipelineCounts } = mr;
+        const assigned = assignFingers(accepted, c.spec.hand);
+        const handWidths = palmUpWidths[c.spec.hand];
+
+        // Missingness and confidence tier.
+        // assignFingers anchors from the left of the image, so the unassigned
+        // fingers are always at the right (tail) of the order array. For a
+        // left hand this means pinky is the first to go missing — anatomically
+        // the least-critical finger for IC-based sizing. Right-hand assignment
+        // is correct when index (rightmost) is missing; if right-hand pinky
+        // (leftmost) is absent the assignment is misanchored — treated
+        // conservatively as 'partial-critical-missing'. TODO: right-hand
+        // pinky-specific anchor fix.
+        const fingerOrder = c.spec.hand === 'left' ? FINGER_ORDER_LEFT : FINGER_ORDER_RIGHT;
+        const detectedSet = new Set(assigned.map(({ finger }) => finger));
+        const missingFingers = fingerOrder.filter(f => !detectedSet.has(f));
+        const isPinkyOnlyMissing =
+          missingFingers.length === 1 && missingFingers[0] === 'pinky';
+        const curlConfidence =
+          missingFingers.length === 0          ? 'full' :
+          isPinkyOnlyMissing                   ? 'partial-pinky-missing' :
+          accepted.length >= 3                 ? 'partial-critical-missing' :
+                                                 'insufficient';
+
+        return {
+          acceptedCount: accepted.length,
+          curlConfidence,
+          detectedFingers: assigned.map(({ finger }) => finger),
+          missingFingers,
+          pipelineCounts,
+          fingers: assigned.map(({ finger, result }) => {
+            const dbg = allCandidatesDebug.find(d => d.result === result) ?? null;
+            const [P1, P2] = result.chordEndpointsPx;
+            const palmUpW = handWidths[finger] ?? null;
+            const h = result.sagittaMm;
+            // correctedICMm uses the anatomically correct W from the top-down
+            // palm-up shot rather than the end-on arc chord. Formula: (W²+4h²)/(4h).
+            // Null until palm-up extraction is enabled.
+            const correctedICMm =
+              palmUpW !== null && h !== null
+                ? (palmUpW * palmUpW + 4 * h * h) / (4 * h)
+                : null;
+            return {
+              finger,
+              palmUpWidthMm: palmUpW,
+              arcChordWidthMm: result.chordWidthMm,
+              sagittaMm: h,
+              rawICMm: result.icMm,
+              correctedICMm,
+              arcScore: result.arcScore,
+              strategy: dbg?.strategy ?? null,
+              chordMidpointX: Math.round((P1.x + P2.x) / 2),
+              chordEndpoints: {
+                P1: { x: Math.round(P1.x), y: Math.round(P1.y) },
+                P2: { x: Math.round(P2.x), y: Math.round(P2.y) },
+              },
+            };
+          }),
+        };
+      })(),
     })),
   };
   zip.file('session.json', JSON.stringify(sessionMeta, null, 2));
+
+  // curl_summary.csv — one row per accepted finger per curl-four-finger shot.
+  // Designed to be concatenated across multiple session ZIPs for repeatability
+  // analysis: cat session-*/curl_summary.csv | sort > combined.csv
+  // (header will repeat, filter with grep -v ^session or dedup in a spreadsheet)
+  // curl_summary.csv — one row per expected finger per curl-four-finger shot.
+  // Missing fingers get explicit rows with present=false so downstream analysis
+  // can distinguish "not measured" from "never attempted". Concatenate across
+  // sessions with: grep -v ^sessionTimestamp session-*/curl_summary.csv
+  const csvHeader =
+    'sessionTimestamp,hand,finger,present,curlConfidence,' +
+    'sagittaMm,arcChordWidthMm,rawICMm,palmUpWidthMm,correctedICMm,' +
+    'arcScore,strategy,chordMidpointX';
+  const csvRows: string[] = [csvHeader];
+  for (const c of captures) {
+    if (c.spec.shotType !== 'curl-four-finger') continue;
+    const mr = c.diagnostics.multiArcResult;
+    if (!mr) continue;
+    const assigned = assignFingers(mr.accepted, c.spec.hand);
+    const handWidths = palmUpWidths[c.spec.hand];
+
+    // Recompute confidence tier (matches curlResults in session.json)
+    const fingerOrder = c.spec.hand === 'left' ? FINGER_ORDER_LEFT : FINGER_ORDER_RIGHT;
+    const detectedSet = new Set(assigned.map(({ finger }) => finger));
+    const csvMissing = fingerOrder.filter(f => !detectedSet.has(f));
+    const csvPinkyOnly = csvMissing.length === 1 && csvMissing[0] === 'pinky';
+    const csvConfidence =
+      csvMissing.length === 0 ? 'full' :
+      csvPinkyOnly            ? 'partial-pinky-missing' :
+      mr.accepted.length >= 3 ? 'partial-critical-missing' :
+                                'insufficient';
+
+    // Detected finger rows
+    for (const { finger, result } of assigned) {
+      const dbg = mr.allCandidatesDebug.find(d => d.result === result);
+      const [P1, P2] = result.chordEndpointsPx;
+      const midX = Math.round((P1.x + P2.x) / 2);
+      const palmUpW = handWidths[finger] ?? null;
+      const h = result.sagittaMm;
+      const correctedIC =
+        palmUpW !== null && h !== null
+          ? (palmUpW * palmUpW + 4 * h * h) / (4 * h)
+          : null;
+      csvRows.push(
+        [
+          sessionTimestamp,
+          c.spec.hand,
+          finger,
+          'true',
+          csvConfidence,
+          h?.toFixed(4) ?? '',
+          result.chordWidthMm?.toFixed(4) ?? '',
+          result.icMm?.toFixed(4) ?? '',
+          palmUpW?.toFixed(4) ?? '',
+          correctedIC?.toFixed(4) ?? '',
+          result.arcScore.toFixed(5),
+          dbg?.strategy ?? '',
+          midX,
+        ].join(','),
+      );
+    }
+
+    // Missing finger rows — explicit nulls so downstream knows they were
+    // expected but not measured (not the same as "session didn't attempt").
+    for (const finger of csvMissing) {
+      csvRows.push(
+        [
+          sessionTimestamp,
+          c.spec.hand,
+          finger,
+          'false',
+          csvConfidence,
+          '', '', '', '', '',
+          '', '', '',
+        ].join(','),
+      );
+    }
+  }
+  zip.file('curl_summary.csv', csvRows.join('\n') + '\n');
 
   const blob = await zip.generateAsync({ type: 'blob' });
 
@@ -950,6 +1112,38 @@ function FocalMetadataSection({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Finger assignment
+// ---------------------------------------------------------------------------
+
+// Verified by dot-test on left-hand curl shot (2026-05-28):
+// In portrait mode with back-facing camera, the thumb anchors to the left side
+// of the image, placing index leftmost and pinky rightmost for the left hand.
+// Right hand is mirrored — pinky leftmost, index rightmost.
+const FINGER_ORDER_LEFT:  Finger[] = ['index', 'middle', 'ring', 'pinky'];
+const FINGER_ORDER_RIGHT: Finger[] = ['pinky', 'ring', 'middle', 'index'];
+
+/**
+ * Sort accepted arc results by x-midpoint of their chord and assign finger
+ * identities based on hand. Returns arcs sorted left-to-right in the image,
+ * paired with their finger name.
+ *
+ * When fewer than 4 arcs are accepted only the leftmost N fingers are assigned.
+ * The caller should display each entry's `finger` label alongside its IC values.
+ */
+function assignFingers(
+  accepted: SagittaResult[],
+  hand: 'left' | 'right',
+): { finger: Finger; result: SagittaResult }[] {
+  const order = hand === 'left' ? FINGER_ORDER_LEFT : FINGER_ORDER_RIGHT;
+  const sorted = [...accepted].sort(
+    (a, b) =>
+      (a.chordEndpointsPx[0].x + a.chordEndpointsPx[1].x) -
+      (b.chordEndpointsPx[0].x + b.chordEndpointsPx[1].x),
+  );
+  return sorted.map((result, i) => ({ finger: order[i], result }));
+}
+
 /**
  * Nail sagitta / IC diagnostics section.
  *
@@ -1012,50 +1206,267 @@ function SagittaSection({
 
   // ── Four-finger curl: multi-arc candidate display ────────────────────────
   if (shotSpec?.shotType === 'curl-four-finger' && multiArcResult) {
-    const { accepted, allCandidatesDebug } = multiArcResult;
+    const { accepted, allCandidatesDebug, pipelineCounts } = multiArcResult;
     const expected = shotSpec.expectedArcCount; // 4
     const rejected = allCandidatesDebug.filter(d => !d.accepted);
+    const poolEmpty = pipelineCounts.postNmsCount === 0 && pipelineCounts.prefilterRejectCount === 0;
+
+    // Assign finger identities: sort accepted arcs left-to-right by x-midpoint,
+    // then map to finger names based on hand. Convention verified by dot-test
+    // on left-hand curl shot (2026-05-28).
+    const assigned = assignFingers(accepted, shotSpec.hand);
+    // Match each accepted SagittaResult back to its ArcCandidateDebug entry by
+    // reference so we can display the correct strategy label. The debug array
+    // contains both accepted and rejected entries in raw-score order, which does
+    // not align with the accepted array's arc-score order.
+    const debugForResult = (r: SagittaResult) =>
+      allCandidatesDebug.find(d => d.result === r) ?? null;
+
+    // ── Missingness & confidence tier ───────────────────────────────────────
+    const uiFingerOrder = shotSpec.hand === 'left' ? FINGER_ORDER_LEFT : FINGER_ORDER_RIGHT;
+    const uiDetectedSet = new Set(assigned.map(({ finger }) => finger));
+    const missingFingers = uiFingerOrder.filter(f => !uiDetectedSet.has(f));
+    const isPinkyOnlyMissing =
+      missingFingers.length === 1 && missingFingers[0] === 'pinky';
+    // 'partial-pinky-missing' = usable; 'partial-critical-missing' or
+    // 'insufficient' = retry encouraged regardless of quality gates.
+    const curlConfidence =
+      missingFingers.length === 0 ? 'full' :
+      isPinkyOnlyMissing          ? 'partial-pinky-missing' :
+      accepted.length >= 3        ? 'partial-critical-missing' :
+                                    'insufficient';
+
+    // ── Pose quality flags ──────────────────────────────────────────────────
+    // WIDE_CHORD_MM: when cc-bright-hi gives a chord wider than this, the finger
+    // likely wasn't end-on — the bright CC spans skin alongside the nail plate.
+    // Empirically: all clean detections were ≤13.8 mm; bad ones were 15–21 mm.
+    const WIDE_CHORD_MM = 15;
+    // COLLISION_PX: two arc midpoints this close means a double-detection of a
+    // single finger (the other finger was obscured or fused).
+    // 150px (~11mm) flagged normal adjacent-finger spacing; empirically the only
+    // true double-detection in 8 sessions was 3px. 50px (~4mm) catches that while
+    // leaving normal gaps (80–130px) clean.
+    const COLLISION_PX = 50;
+    // LOW_H_MM: sagitta this small means the arc is nearly flat. IC becomes
+    // hypersensitive to h errors at this scale (small h → large IC, steep slope).
+    // Soft warning per finger only — does not trigger the retry banner.
+    const LOW_H_MM = 1.5;
+
+    const wideFingers = assigned
+      .filter(({ result }) => (result.chordWidthMm ?? 0) > WIDE_CHORD_MM)
+      .map(({ finger }) => finger);
+
+    // Sort by x-midpoint once; reused for both collision and overlap checks.
+    const sortedByX = [...assigned]
+      .map(({ finger, result }) => {
+        const [P1, P2] = result.chordEndpointsPx;
+        return {
+          finger,
+          midX: (P1.x + P2.x) / 2,
+          minX: Math.min(P1.x, P2.x),
+          maxX: Math.max(P1.x, P2.x),
+          result,
+        };
+      })
+      .sort((a, b) => a.midX - b.midX);
+
+    const collisionPairs: { label: string; gapPx: number }[] = [];
+    for (let i = 1; i < sortedByX.length; i++) {
+      const gapPx = Math.round(sortedByX[i].midX - sortedByX[i - 1].midX);
+      if (gapPx < COLLISION_PX) {
+        collisionPairs.push({
+          label: `${sortedByX[i - 1].finger}/${sortedByX[i].finger}`,
+          gapPx,
+        });
+      }
+    }
+
+    // Clustered triplet: any 3 consecutive arcs (by x-order) whose midpoints
+    // span less than MIN_TRIPLET_SPREAD_PX. Three separate finger nails must be
+    // at least ~2 nail-widths apart (~16 mm ≈ 200 px at 13 px/mm). A spread
+    // below this means the pipeline found 3 "arcs" inside a single finger's
+    // x-territory — almost certainly multiple detections from one source.
+    // Note: pairwise x-chord overlap alone is unreliable because ring/pinky
+    // arcs legitimately overlap in x-projection when they're at different
+    // y-positions in a tight curl.
+    const MIN_TRIPLET_SPREAD_PX = 200;
+    const clusteredTriplets: { label: string; spreadPx: number }[] = [];
+    for (let i = 0; i + 2 < sortedByX.length; i++) {
+      const spreadPx = Math.round(sortedByX[i + 2].midX - sortedByX[i].midX);
+      if (spreadPx < MIN_TRIPLET_SPREAD_PX) {
+        clusteredTriplets.push({
+          label: `${sortedByX[i].finger}/${sortedByX[i + 1].finger}/${sortedByX[i + 2].finger}`,
+          spreadPx,
+        });
+      }
+    }
+
+    // Isolated arc: an accepted arc whose nearest neighbor is farther than this.
+    // Actual adjacent nails in any curl shot are ≤ ~200 px apart (≤ ~16 mm).
+    // A gap > 400 px means the arc is spatially disconnected from the hand —
+    // almost always a card-edge, white-paper region, or reflection that the
+    // card-footprint exclusion missed because the midpoint was just outside
+    // the projected card quad.
+    const ISOLATION_PX = 400;
+    const isolatedArcs: { finger: string; gapPx: number }[] = [];
+    for (let i = 0; i < sortedByX.length; i++) {
+      const prevGap = i > 0 ? sortedByX[i].midX - sortedByX[i - 1].midX : Infinity;
+      const nextGap = i < sortedByX.length - 1 ? sortedByX[i + 1].midX - sortedByX[i].midX : Infinity;
+      const nearestGap = Math.round(Math.min(prevGap, nextGap));
+      if (nearestGap > ISOLATION_PX) {
+        isolatedArcs.push({ finger: sortedByX[i].finger, gapPx: nearestGap });
+      }
+    }
+
+    const shouldRetry =
+      wideFingers.length > 0 ||
+      collisionPairs.length > 0 ||
+      clusteredTriplets.length > 0 ||
+      isolatedArcs.length > 0;
 
     return (
       <details className="mt-4 text-xs text-white/60" open>
         <summary className="cursor-pointer hover:text-white/80 font-medium">
           Nail sagitta · IC — four-finger curl{' '}
-          <span className={accepted.length > 0 ? 'text-emerald-400' : 'text-amber-400'}>
+          <span className={
+            curlConfidence === 'full'                  ? 'text-emerald-400' :
+            curlConfidence === 'partial-pinky-missing' ? 'text-amber-400' :
+                                                         'text-red-400'
+          }>
             {accepted.length} / {expected} accepted
+            {curlConfidence === 'partial-pinky-missing' && ' — pinky IC absent'}
+            {curlConfidence === 'partial-critical-missing' && ' — critical finger absent'}
+            {curlConfidence === 'insufficient' && ' — insufficient'}
           </span>
         </summary>
 
-        {accepted.length === 0 && (
+        {/* Pipeline counts — always shown so we can diagnose empty-pool vs
+            geometry-gate failures on-device without devtools. */}
+        <PipelineCountsSection counts={pipelineCounts} />
+
+        {accepted.length === 0 && !poolEmpty && (
           <p className="mt-2 text-amber-400/80 italic">
-            No arcs passed sanity filters. Check the debug table below.
+            Candidates found but none passed geometry gates. Check rejected
+            candidates below.
           </p>
         )}
 
-        {accepted.map((r, i) => {
-          const [P1, P2] = r.chordEndpointsPx;
+        {/* Partial-confidence note — pinky absent but all quality gates pass */}
+        {isPinkyOnlyMissing && !shouldRetry && (
+          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/30 px-3 py-2">
+            <p className="text-amber-300 text-xs font-medium">
+              3/4 detected — pinky IC not measured
+            </p>
+            <p className="mt-1 text-amber-300/70 text-xs">
+              Index, middle, and ring arcs look clean. Pinky sizing will use
+              width-only estimate. Acceptable for fitting if pinky IC is
+              non-critical for this user.
+            </p>
+          </div>
+        )}
+
+        {/* Partial-confidence note — critical finger absent, suggest retry */}
+        {(curlConfidence === 'partial-critical-missing' || curlConfidence === 'insufficient') && !shouldRetry && (
+          <div className="mt-3 rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2">
+            <p className="text-red-300 text-xs font-medium">
+              Missing finger:{' '}
+              <span className="font-semibold">{missingFingers.join(', ')}</span>
+              {' '}— retry recommended
+            </p>
+            <p className="mt-1 text-red-300/70 text-xs">
+              {curlConfidence === 'insufficient'
+                ? 'Fewer than 3 arcs detected — IC data is insufficient for fitting.'
+                : 'A critical finger\'s IC is missing — sizing accuracy will be reduced.'}
+            </p>
+          </div>
+        )}
+
+        {/* Retry banner — shown when any finger has suspicious geometry */}
+        {shouldRetry && (
+          <div className="mt-3 rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2">
+            <p className="text-red-300 font-medium">
+              ⚠ Retry curl capture — one or more fingers may not be end-on
+            </p>
+            {wideFingers.length > 0 && (
+              <p className="mt-1 text-red-300/70 text-xs">
+                Arc chord &gt;{WIDE_CHORD_MM} mm:{' '}
+                <span className="font-medium">{wideFingers.join(', ')}</span>
+                {' '}— finger side-wall visible, not nail plate.
+              </p>
+            )}
+            {collisionPairs.length > 0 && (
+              <p className="mt-1 text-red-300/70 text-xs">
+                Midpoint collision:{' '}
+                {collisionPairs.map(({ label, gapPx }) => (
+                  <span key={label} className="font-medium">{label} ({gapPx}px apart)</span>
+                ))}
+                {' '}— fingertips may be overlapping.
+              </p>
+            )}
+            {clusteredTriplets.length > 0 && (
+              <p className="mt-1 text-red-300/70 text-xs">
+                Arc cluster too tight:{' '}
+                {clusteredTriplets.map(({ label, spreadPx }) => (
+                  <span key={label} className="font-medium">{label} ({spreadPx}px span)</span>
+                ))}
+                {' '}— 3 arcs in one finger&apos;s x-territory.
+              </p>
+            )}
+            {isolatedArcs.length > 0 && (
+              <p className="mt-1 text-red-300/70 text-xs">
+                Spatially isolated arc:{' '}
+                {isolatedArcs.map(({ finger, gapPx }) => (
+                  <span key={finger} className="font-medium">{finger} ({gapPx}px from nearest)</span>
+                ))}
+                {' '}— likely card edge or stray reflection, not a nail.
+              </p>
+            )}
+          </div>
+        )}
+
+        {assigned.map(({ finger, result }, i) => {
+          const [P1, P2] = result.chordEndpointsPx;
+          const dbg = debugForResult(result);
+          const chordWide = (result.chordWidthMm ?? 0) > WIDE_CHORD_MM;
+          const hLow = result.sagittaMm !== null && result.sagittaMm < LOW_H_MM;
           return (
-            <div key={i} className="mt-3 border-t border-white/10 pt-3">
-              <p className="text-white/70 font-medium mb-1">
-                Arc {i + 1}
-                {allCandidatesDebug[i] && (
+            <div key={finger} className={`mt-3 border-t pt-3 ${chordWide ? 'border-red-500/30' : 'border-white/10'}`}>
+              <p className={`font-medium mb-1 ${chordWide ? 'text-red-300' : 'text-white/70'}`}>
+                {finger}
+                {chordWide && (
+                  <span className="ml-2 text-red-400/80 font-normal text-xs">
+                    arc-chord &gt;{WIDE_CHORD_MM} mm
+                  </span>
+                )}
+                {hLow && (
+                  <span className="ml-2 text-amber-400/80 font-normal text-xs">
+                    h &lt;{LOW_H_MM} mm — IC unreliable
+                  </span>
+                )}
+                {dbg && (
                   <span className="ml-2 text-white/40 font-normal">
-                    [{allCandidatesDebug[i].strategy}]
+                    [{dbg.strategy}]
                   </span>
                 )}
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-                <DiagRow label="W (px)"     value={fmtPx(r.chordLengthPx)} />
-                <DiagRow label="W (mm)"     value={fmtMm(r.chordWidthMm)} warn={r.chordWidthMm === null} />
-                <DiagRow label="h (px)"     value={fmtPx(r.sagittaPx)} />
-                <DiagRow label="h (mm)"     value={fmtMm(r.sagittaMm)} warn={r.sagittaMm === null} />
-                <DiagRow label="IC radius"  value={fmtMm(r.icMm)} warn={r.icMm === null} />
-                <DiagRow label="Arc score"  value={r.arcScore.toFixed(3)} warn={r.arcScore < 0.05} />
-                <DiagRow label="Chord cov." value={fmtPct(r.chordFrac)} />
+                <DiagRow label="arc-chord (px)" value={fmtPx(result.chordLengthPx)} />
+                <div className={`flex items-baseline justify-between gap-3 py-1 border-b border-white/5 last:border-b-0`}>
+                  <span className="text-white/60">arc-chord (mm)</span>
+                  <span className={chordWide ? 'text-red-400 font-medium' : 'text-white font-medium'}>
+                    {fmtMm(result.chordWidthMm)}
+                  </span>
+                </div>
+                <DiagRow label="h (px)"     value={fmtPx(result.sagittaPx)} />
+                <DiagRow label="h (mm)"     value={fmtMm(result.sagittaMm)} warn={result.sagittaMm === null || hLow} />
+                <DiagRow label="IC radius"  value={fmtMm(result.icMm)} warn={result.icMm === null} />
+                <DiagRow label="Arc score"  value={result.arcScore.toFixed(3)} warn={result.arcScore < 0.05} />
+                <DiagRow label="Chord cov." value={fmtPct(result.chordFrac)} />
               </div>
               <p className="mt-1 font-mono text-white/40 leading-5">
                 P1=({Math.round(P1.x)},{Math.round(P1.y)}){' '}
                 P2=({Math.round(P2.x)},{Math.round(P2.y)}){' '}
-                apex=({Math.round(r.apexPx.x)},{Math.round(r.apexPx.y)})
+                apex=({Math.round(result.apexPx.x)},{Math.round(result.apexPx.y)})
               </p>
             </div>
           );
@@ -1070,13 +1481,6 @@ function SagittaSection({
               <ArcRejectionRow key={i} debug={d} />
             ))}
           </details>
-        )}
-
-        {accepted.length < expected && rejected.length === 0 && allCandidatesDebug.length === 0 && (
-          <p className="mt-2 text-amber-400/70 italic">
-            No arc candidates found — ensure nails are visible end-on and
-            well-separated from background.
-          </p>
         )}
       </details>
     );
@@ -1118,6 +1522,88 @@ function SagittaSection({
         apex=({Math.round(nailSagitta.apexPx.x)},{Math.round(nailSagitta.apexPx.y)})
       </div>
     </details>
+  );
+}
+
+/**
+ * Compact pipeline-stage count display for the four-finger curl diagnostics
+ * panel. Answers the "why is the pool empty?" question on-device without
+ * needing browser devtools.
+ *
+ * Interprets the counts into one of four failure-mode labels:
+ *   (A) Pool empty, CCs=0          → contrast / background issue
+ *   (B) Pool empty, CCs>0          → all CCs filtered by area/chord/score
+ *   (C) Pool non-empty, accepted=0 → geometry gate failure (pose / scale)
+ *   (D) Accepted > 0               → success (or partial success)
+ */
+function PipelineCountsSection({ counts }: { counts: ArcPipelineCounts }) {
+  const {
+    otsuThreshold,
+    ccBrightTotal, ccBrightPass,
+    ccBrightTooSmall, ccBrightTooLarge, ccBrightTooNarrow,
+    ccDarkTotal, ccDarkPass,
+    ccDarkTooSmall, ccDarkTooLarge, ccDarkTooNarrow,
+    poolBeforePrefilter, prefilterRejectCount, postNmsCount,
+    cardRegionRejectCount,
+  } = counts;
+
+  // Otsu quality heuristic: values near 0 or 255 indicate low bi-modal contrast.
+  const otsuOk   = otsuThreshold >= 30 && otsuThreshold <= 220;
+  const otsuLabel = otsuOk ? `${otsuThreshold} (ok)` : `${otsuThreshold} ← low contrast`;
+  const otsuWarn  = !otsuOk;
+
+  const totalCCs = ccBrightTotal + ccDarkTotal;
+  const totalPass = ccBrightPass + ccDarkPass;
+  const poolEmpty = postNmsCount === 0 && prefilterRejectCount === 0;
+  const poolNonEmpty = postNmsCount > 0 || prefilterRejectCount > 0;
+
+  // Failure mode label
+  let failMode: string | null = null;
+  let failColor = 'text-amber-400/80';
+  if (poolEmpty && totalCCs === 0) {
+    failMode = 'Mode A: no CC components — try dark background + directional lighting';
+  } else if (poolEmpty && totalPass === 0) {
+    failMode = 'Mode B: CCs found but all filtered — framing or lighting issue';
+  } else if (poolNonEmpty && poolBeforePrefilter > 0) {
+    failMode = 'Mode C: candidates found — see rejected list for geometry reasons';
+    failColor = 'text-white/50';
+  }
+
+  return (
+    <div className="mt-2 border-t border-white/8 pt-2 space-y-1">
+      <p className="text-[10px] text-white/40 uppercase tracking-wide font-medium">Pipeline</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] font-mono">
+        <span className={otsuWarn ? 'text-amber-400' : 'text-white/50'}>
+          otsu {otsuLabel}
+        </span>
+        <span className="text-white/35">pool→NMS {poolBeforePrefilter}→{postNmsCount}</span>
+        <span className="text-white/50 col-span-2">
+          cc-bright {ccBrightTotal} total / {ccBrightPass} pass
+          <span className="text-white/30 ml-1">
+            ({ccBrightTooSmall}sm {ccBrightTooLarge}lg {ccBrightTooNarrow}nw)
+          </span>
+        </span>
+        <span className="text-white/50 col-span-2">
+          cc-dark {ccDarkTotal} total / {ccDarkPass} pass
+          <span className="text-white/30 ml-1">
+            ({ccDarkTooSmall}sm {ccDarkTooLarge}lg {ccDarkTooNarrow}nw)
+          </span>
+        </span>
+        {prefilterRejectCount > 0 && (
+          <span className="text-white/35 col-span-2">
+            scale-prefilter removed {prefilterRejectCount}
+          </span>
+        )}
+        {cardRegionRejectCount > 0 && (
+          <span className="text-white/35 col-span-2">
+            card-region removed {cardRegionRejectCount}
+          </span>
+        )}
+      </div>
+      {failMode && (
+        <p className={`text-[10px] italic ${failColor}`}>{failMode}</p>
+      )}
+    </div>
   );
 }
 

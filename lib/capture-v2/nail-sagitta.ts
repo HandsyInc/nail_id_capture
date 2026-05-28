@@ -96,6 +96,7 @@ import {
 } from './cv-primitives';
 import {
   pixelsPerMmAt,
+  applyHomography,
   CARD_WIDTH_MM,
   CARD_HEIGHT_MM,
   type CardHomography,
@@ -138,7 +139,7 @@ export type SagittaResult = {
 };
 
 /** Which detection strategy produced a given arc candidate. */
-export type ArcDetectionStrategy = 'cc-bright' | 'cc-dark' | 'gradient';
+export type ArcDetectionStrategy = 'cc-bright' | 'cc-bright-hi' | 'cc-dark' | 'gradient';
 
 /**
  * Full debug record for one candidate arc found during multi-arc extraction.
@@ -171,12 +172,70 @@ export type ArcCandidateDebug = {
 };
 
 /**
+ * Stage-by-stage candidate counts from a single `extractMultiArc` call.
+ *
+ * Exposed so the diagnostics panel can distinguish the four failure modes:
+ *   (A) Pool empty — nothing in the image matched the CC/gradient criteria.
+ *       Usually means low contrast between finger and background (lighting
+ *       or background-colour issue) or all components outside area bounds.
+ *   (B) Pool non-empty, but all rejected by scale-prefilter.
+ *       Candidates exist but all exceed the mm ceiling (hand-scale blobs).
+ *   (C) Pool non-empty after prefilter + NMS, but all fail anatomical gates.
+ *       Candidates exist at the right scale but wrong geometry — pose or
+ *       segmentation traces the wrong boundary (skin vs. nail plate).
+ *   (D) Accepted = expected. Success.
+ *
+ * `otsuThreshold` is the key lighting diagnostic: values near 0 or 255
+ * indicate the image has almost no bi-modal contrast and the binarization
+ * has likely collapsed into one class.
+ */
+export type ArcPipelineCounts = {
+  /** Otsu binarization threshold (0–255). Near 0 or 255 → low contrast. */
+  otsuThreshold: number;
+  /** Total CC components found in the above-threshold (bright) polarity. */
+  ccBrightTotal: number;
+  /** Bright-polarity components that passed area + chord filters. */
+  ccBrightPass: number;
+  /** Bright-polarity components rejected because area < MIN_COMPONENT_AREA_FRAC. */
+  ccBrightTooSmall: number;
+  /** Bright-polarity components rejected because area > MAX_COMPONENT_AREA_FRAC. */
+  ccBrightTooLarge: number;
+  /** Bright-polarity components that passed area but whose bounding-box width < MIN_CHORD_FRAC. */
+  ccBrightTooNarrow: number;
+  /** Total CC components found in the below-threshold (dark) polarity. */
+  ccDarkTotal: number;
+  /** Dark-polarity components that passed area + chord filters. */
+  ccDarkPass: number;
+  /** Dark-polarity components rejected because area < MIN_COMPONENT_AREA_FRAC. */
+  ccDarkTooSmall: number;
+  /** Dark-polarity components rejected because area > MAX_COMPONENT_AREA_FRAC. */
+  ccDarkTooLarge: number;
+  /** Dark-polarity components that passed area but whose bounding-box width < MIN_CHORD_FRAC. */
+  ccDarkTooNarrow: number;
+  /** Candidates entering the pool (ccBright + ccDark + gradient). */
+  poolBeforePrefilter: number;
+  /** Candidates removed by scale prefilter (chord > mm ceiling). */
+  prefilterRejectCount: number;
+  /** Candidates remaining after scale prefilter + spatial NMS. */
+  postNmsCount: number;
+  /**
+   * Candidates removed because their chord midpoint fell inside the projected
+   * card footprint. The most common source is the EMV chip module (~12.5 mm
+   * wide) which lands squarely in the NAIL_W range and forms a bright CC.
+   */
+  cardRegionRejectCount: number;
+};
+
+/**
  * Result of multi-arc extraction from a single curl-shot frame.
  *
  * For a four-finger curl shot, `accepted` will contain 0–4 SagittaResults,
  * one per detected nail. `allCandidatesDebug` exposes the full post-NMS
  * candidate set — accepted and rejected — for diagnostic display. Use it to
  * investigate the gap between "expected 4" and "detected N".
+ * `pipelineCounts` surfaces per-stage counts so the diagnostics panel can
+ * distinguish pool-empty (contrast/segmentation failure) from pool-non-empty
+ * (geometry gate failure).
  */
 export type MultiArcResult = {
   /** Accepted candidates sorted by arc score descending. */
@@ -190,6 +249,8 @@ export type MultiArcResult = {
    * they failed.
    */
   allCandidatesDebug: ArcCandidateDebug[];
+  /** Stage-by-stage candidate counts for diagnostics. */
+  pipelineCounts: ArcPipelineCounts;
 };
 
 // ---------------------------------------------------------------------------
@@ -208,8 +269,36 @@ const MIN_CHORD_FRAC = 0.03;
  */
 const MIN_ARC_SCORE = 0.03;
 
-/** Minimum CC component area as a fraction of detection-image area. */
-const MIN_COMPONENT_AREA_FRAC = 0.005;
+/**
+ * Maximum arc score (sagitta / chord). Rejects near-circular blobs that
+ * cannot be nail arcs — nails are shallow curves (typical score 0.03–0.35).
+ * A score above 0.50 means the sagitta exceeds half the chord length, which
+ * implies more than a quarter-circle curve; this is never a nail plate arc.
+ * The observed h=15.5mm / chord=12mm artifact (score ≈ 1.31) is caught here
+ * before entering the pool rather than only at the downstream NAIL_H gate.
+ */
+const MAX_ARC_SCORE = 0.50;
+
+/**
+ * Minimum CC component area as a fraction of detection-image area.
+ *
+ * In an end-on curl shot the nail plate appears as a bright curved band across
+ * the top of the finger cross-section. In detection space (900×1200) at
+ * ~4 px/mm the nail plate bright-CC component spans roughly 57px × 15px ≈ 855px
+ * ≈ 0.08% of detection area. The previous value of 0.5% (5 400px) was filtering
+ * out nail-plate-scale bright components entirely, leaving only the larger
+ * (and geometrically incorrect) full-finger cross-section components in the pool.
+ *
+ * 0.03% (324px in a 900×1200 detection frame) admits shallow nail-plate CCs
+ * (~57 × 10px ≈ 570px) while the secondary bbWidth check (MIN_CHORD_FRAC)
+ * still rejects compact noise blobs whose width < 3% of the image — those are
+ * too narrow to be nail arcs and are counted as tooNarrow in pipelineCounts.
+ *
+ * History: started at 0.5% (5 400px floor, filtered all nail-plate CCs).
+ * Lowered to 0.1% (Fix 3) which was still above the ~855px nail-plate estimate.
+ * Now at 0.03% after field data showed 150/154 cc-bright components rejected sm.
+ */
+const MIN_COMPONENT_AREA_FRAC = 0.0003;
 
 /**
  * Maximum CC component area as a fraction of detection-image area.
@@ -269,11 +358,40 @@ const SCALE_PREFILTER_MARGIN = 2.0;
 /**
  * Spatial NMS: chord x-intervals that overlap by more than this IOU fraction
  * are treated as detections of the same nail — only the higher-scoring one
- * is kept. Duplicate detections arise when bright and dark CC both find the
- * same nail; their intervals overlap nearly completely (IOU ≈ 0.9+), safely
- * above this threshold. Adjacent distinct nails have IOU ≈ 0, safely below it.
+ * is kept.
+ *
+ * Why 0.7 (not 0.5):
+ *
+ * The cc-dark strategy traces the full finger cross-section boundary (~25mm)
+ * because the skin and nail plate form one connected region in the below-Otsu
+ * binary image. The cc-bright strategy may isolate just the nail plate (~14mm).
+ * A 14mm nail inside a 25.8mm finger cross-section has IOU = 14/25.8 = 0.54.
+ *
+ * At IOU threshold 0.50 the finger-scale arc suppresses the nail-scale arc
+ * (0.54 > 0.50), leaving only the 25.8mm candidate which fails NAIL_W_MAX_MM.
+ * At IOU threshold 0.70 the 14mm nail survives NMS (0.54 < 0.70) and is
+ * evaluated independently.
+ *
+ * True duplicates (same nail found by both CC polarities) have IOU ≈ 0.85–0.95
+ * and are still correctly collapsed. Adjacent distinct nails have IOU ≈ 0
+ * and are still kept as separate candidates.
  */
-const NMS_IOU_THRESHOLD = 0.5;
+const NMS_IOU_THRESHOLD = 0.7;
+
+/**
+ * Threshold increment added on top of the Otsu level for the high-threshold
+ * bright pass (`cc-bright-hi` strategy).
+ *
+ * Motivation: nail plate luminance (~175–200) sits above surrounding skin
+ * (~140–160). The standard Otsu threshold often lands between them, so nail
+ * plate and skin merge into one finger-scale bright CC. Raising the threshold
+ * by this offset excludes skin pixels while retaining the nail plate, giving
+ * the nail plate an isolated bright CC at the correct (~12mm) scale.
+ *
+ * 30 units above Otsu is a starting point. Tune upward if skin still bleeds
+ * into the high-threshold CC; tune downward if nail plates disappear entirely.
+ */
+const HIGH_THRESHOLD_OFFSET = 30;
 
 // ---------------------------------------------------------------------------
 // Anatomical sanity constants  (mm-space checks, requires homography)
@@ -314,7 +432,9 @@ type ArcCandidate = {
  *
  * @param imageData      Full-resolution RGBA frame from canvas.getImageData.
  * @param homography     Card-plane homography at capture time, or null.
- * @param maxCandidates  Maximum arcs to process after NMS (default 4).
+ * @param maxCandidates  Maximum accepted arcs returned (default 4). All
+ *                       post-NMS candidates are evaluated; the accepted set
+ *                       is trimmed to this limit after anatomical filtering.
  */
 export function extractMultiArc(
   imageData: ImageData,
@@ -332,16 +452,36 @@ export function extractMultiArc(
   // Collect all per-component arc candidates from both CC polarities.
   const pool: TaggedCandidate[] = [];
 
-  for (const c of findArcCandidatesFromBinary(binaryThreshold(gray, threshold, false))) {
-    pool.push({ candidate: c, strategy: 'cc-bright' });
-  }
-  for (const c of findArcCandidatesFromBinary(binaryThreshold(gray, threshold, true))) {
-    pool.push({ candidate: c, strategy: 'cc-dark' });
+  const brightResult = findArcCandidatesFromBinary(binaryThreshold(gray, threshold, false));
+  const darkResult   = findArcCandidatesFromBinary(binaryThreshold(gray, threshold, true));
+
+  for (const c of brightResult.candidates) pool.push({ candidate: c, strategy: 'cc-bright' });
+  for (const c of darkResult.candidates)   pool.push({ candidate: c, strategy: 'cc-dark' });
+
+  // High-threshold bright pass: re-run CC detection at Otsu + HIGH_THRESHOLD_OFFSET
+  // to separate nail plate pixels from surrounding skin.
+  //
+  // At the standard Otsu level, skin luminance (~140–160) and nail plate luminance
+  // (~175–200) often both exceed the threshold, merging into a single finger-scale
+  // bright CC whose top boundary traces the whole finger outline rather than just
+  // the nail plate arc. The higher threshold excludes skin, allowing the nail plate
+  // to form its own isolated CC at nail scale (~12 mm).
+  //
+  // NMS deduplication collapses any candidate this pass finds that overlaps a
+  // candidate already found by the standard Otsu pass.
+  const highThreshold     = Math.min(threshold + HIGH_THRESHOLD_OFFSET, 240);
+  const highBrightResult  = findArcCandidatesFromBinary(
+    binaryThreshold(gray, highThreshold, false),
+  );
+  for (const c of highBrightResult.candidates) {
+    pool.push({ candidate: c, strategy: 'cc-bright-hi' });
   }
 
   // Gradient scan contributes one additional fallback candidate.
+  // MAX_ARC_SCORE gate mirrors the CC candidate filter — reject near-circular
+  // blobs that cannot be nail arcs before they enter the pool.
   const gs = findArcByGradientScan(gray);
-  if (gs && gs.score >= MIN_ARC_SCORE) {
+  if (gs && gs.score >= MIN_ARC_SCORE && gs.score <= MAX_ARC_SCORE) {
     pool.push({ candidate: gs, strategy: 'gradient' });
   }
 
@@ -417,13 +557,95 @@ export function extractMultiArc(
   }
   // ─────────────────────────────────────────────────────────────────────────
 
+  // ── Card-footprint exclusion — AFTER scale-prefilter, BEFORE NMS ─────────
+  //
+  // The reference card is in-frame for every curl shot. Small high-contrast
+  // features on the card surface (EMV chip module, logo, text) can form bright
+  // CCs that survive all area + score filters at nail scale. The chip module is
+  // the primary offender: ~12.5 × 9.5 mm width lands squarely in NAIL_W_MAX_MM.
+  //
+  // If the card homography is available we project the four card corners to
+  // full-resolution image space and reject any candidate whose chord midpoint
+  // falls inside that quadrilateral. This eliminates card-region false positives
+  // before NMS so they cannot suppress genuine nail-scale candidates.
+  //
+  // Rejected candidates are still recorded in cardRegionRejects and appended
+  // to allCandidatesDebug so the diagnostics panel can confirm the filter fired.
+  const cardRegionRejects: ArcCandidateDebug[] = [];
+  let postCardPool = filteredPool;
+
+  if (homography !== null) {
+    try {
+      // Project card corners (mm) → image space (full-res px).
+      // cardToImage maps card-plane mm → full-resolution image pixels directly.
+      const corners = [
+        applyHomography(homography.cardToImage, { x: 0,             y: 0              }),
+        applyHomography(homography.cardToImage, { x: CARD_WIDTH_MM, y: 0              }),
+        applyHomography(homography.cardToImage, { x: CARD_WIDTH_MM, y: CARD_HEIGHT_MM }),
+        applyHomography(homography.cardToImage, { x: 0,             y: CARD_HEIGHT_MM }),
+      ] as [Point, Point, Point, Point];
+
+      postCardPool = [];
+      for (const item of filteredPool) {
+        const { candidate, strategy } = item;
+        // Convert detection-space chord midpoint → full-resolution image pixels.
+        const midFullX = ((candidate.P1.x + candidate.P2.x) / 2) / downScale;
+        const midFullY = ((candidate.P1.y + candidate.P2.y) / 2) / downScale;
+        const mid: Point = { x: midFullX, y: midFullY };
+
+        if (isPointInConvexQuad(mid, corners)) {
+          const chordDetPx  = Math.hypot(
+            candidate.P2.x - candidate.P1.x,
+            candidate.P2.y - candidate.P1.y,
+          );
+          const chordFrac = (chordDetPx / downScale) / width;
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[nail-sagitta] card-exclusion filtered — ` +
+            `midpoint=(${Math.round(midFullX)},${Math.round(midFullY)}) ` +
+            `inside card footprint  strategy=${strategy}  ` +
+            `score=${candidate.score.toFixed(3)}`,
+          );
+          cardRegionRejects.push({
+            strategy,
+            rawScore: candidate.score,
+            detectionP1:   candidate.P1,
+            detectionP2:   candidate.P2,
+            detectionApex: candidate.apex,
+            chordFrac,
+            accepted: false,
+            rejectionReason:
+              `card-region: midpoint (${Math.round(midFullX)},${Math.round(midFullY)}) inside card footprint`,
+            result: null,
+          });
+        } else {
+          postCardPool.push(item);
+        }
+      }
+    } catch {
+      // Homography projection failed (degenerate matrix) — leave pool unfiltered.
+      postCardPool = filteredPool;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Spatial NMS: collapse duplicate detections of the same nail.
-  const deduped = spatialNMS(filteredPool);
+  const deduped = spatialNMS(postCardPool);
 
-  // Process the top maxCandidates through upscaling → mm conversion → sanity.
-  const toProcess = deduped.slice(0, maxCandidates);
-
-  const allCandidatesDebug: ArcCandidateDebug[] = toProcess.map(
+  // Process ALL post-NMS candidates through upscaling → mm conversion → sanity.
+  //
+  // Previously only the top `maxCandidates` (= 4) post-NMS candidates were
+  // evaluated. That was the second layer of suppression: finger-scale arcs
+  // (~25mm, from cc-dark tracing the full cross-section) score higher than
+  // nail-scale arcs (~14mm, from cc-bright isolating the nail plate), so they
+  // consumed all 4 evaluation slots. The nail-scale arcs were never seen by
+  // buildCandidateResult.
+  //
+  // The fix: evaluate every post-NMS candidate; trim the ACCEPTED set to
+  // maxCandidates afterward. Finger-scale candidates still appear in
+  // allCandidatesDebug with their W-range rejection reason so the diagnostics
+  // panel shows why they were removed.
+  const allCandidatesDebug: ArcCandidateDebug[] = deduped.map(
     ({ candidate, strategy }) =>
       buildCandidateResult(candidate, strategy, downScale, width, homography),
   );
@@ -440,7 +662,29 @@ export function extractMultiArc(
   // Append prefilter rejects so the diagnostics panel can confirm the
   // transition from hand-scale to nail-scale detection. They appear in the
   // "Rejected candidates" section with reason "scale-prefilter: …".
-  return { accepted, allCandidatesDebug: [...allCandidatesDebug, ...prefilterRejects] };
+  //
+  // Trim accepted to maxCandidates here (previously at deduped.slice).
+  return {
+    accepted: accepted.slice(0, maxCandidates),
+    allCandidatesDebug: [...allCandidatesDebug, ...prefilterRejects, ...cardRegionRejects],
+    pipelineCounts: {
+      otsuThreshold:        threshold,
+      ccBrightTotal:        brightResult.totalComponents,
+      ccBrightPass:         brightResult.candidates.length,
+      ccBrightTooSmall:     brightResult.tooSmall,
+      ccBrightTooLarge:     brightResult.tooLarge,
+      ccBrightTooNarrow:    brightResult.tooNarrow,
+      ccDarkTotal:          darkResult.totalComponents,
+      ccDarkPass:           darkResult.candidates.length,
+      ccDarkTooSmall:       darkResult.tooSmall,
+      ccDarkTooLarge:       darkResult.tooLarge,
+      ccDarkTooNarrow:      darkResult.tooNarrow,
+      poolBeforePrefilter:  pool.length,
+      prefilterRejectCount: prefilterRejects.length,
+      postNmsCount:         deduped.length,
+      cardRegionRejectCount: cardRegionRejects.length,
+    },
+  };
 }
 
 /**
@@ -468,6 +712,22 @@ export function extractSagitta(
 // ---------------------------------------------------------------------------
 
 /**
+ * Result of one call to `findArcCandidatesFromBinary`.
+ * `totalComponents` is the raw CC count from `labelComponents` (before any
+ * area/chord filtering). It drives the `ccBrightTotal` / `ccDarkTotal` fields
+ * in `ArcPipelineCounts` so the diagnostics panel can distinguish "no CCs at
+ * all" (contrast/lighting failure) from "CCs exist but all filtered" (area or
+ * chord constraint too strict).
+ */
+type CCFindResult = {
+  candidates: ArcCandidate[];
+  totalComponents: number;
+  tooSmall: number;
+  tooLarge: number;
+  tooNarrow: number;
+};
+
+/**
  * Returns all qualifying arc candidates from the connected components of a
  * binary image — one best arc per component, sorted by score descending.
  *
@@ -484,8 +744,11 @@ export function extractSagitta(
  * - MAX_COMPONENT_AREA_FRAC = 0.12 — targets single finger-tip components.
  *   The previous value of 0.65 admitted whole-hand silhouettes which were
  *   producing dominant arc candidates at ~100mm chord width.
+ * - MIN_COMPONENT_AREA_FRAC = 0.001 — admits nail-plate bright-CC components
+ *   (~0.08% of detection area) that the previous 0.5% floor was rejecting.
+ * - MAX_ARC_SCORE = 0.50 — rejects near-circular blobs (score > 0.5) early.
  */
-function findArcCandidatesFromBinary(binary: GrayImage): ArcCandidate[] {
+function findArcCandidatesFromBinary(binary: GrayImage): CCFindResult {
   const { width, height } = binary;
   const totalPx = width * height;
   const minPx   = Math.round(totalPx * MIN_COMPONENT_AREA_FRAC);
@@ -493,14 +756,18 @@ function findArcCandidatesFromBinary(binary: GrayImage): ArcCandidate[] {
 
   const { labels, count, sizes, bboxes } = labelComponents(binary);
   const results: ArcCandidate[] = [];
+  let tooSmall = 0;
+  let tooLarge = 0;
+  let tooNarrow = 0;
 
   for (let id = 1; id <= count; id++) {
     const sz = sizes[id];
-    if (sz < minPx || sz > maxPx) continue;
+    if (sz < minPx) { tooSmall++; continue; }
+    if (sz > maxPx) { tooLarge++; continue; }
 
     const bb = bboxes[id];
     const bbWidth = bb.maxX - bb.minX + 1;
-    if (bbWidth < width * MIN_CHORD_FRAC) continue;
+    if (bbWidth < width * MIN_CHORD_FRAC) { tooNarrow++; continue; }
 
     const boundary = componentBoundaryPixels(labels, width, height, id, bb);
     if (boundary.length === 0) continue;
@@ -513,12 +780,18 @@ function findArcCandidatesFromBinary(binary: GrayImage): ArcCandidate[] {
     }
 
     const candidate = arcFromProfile(topBoundary, bb.minX, bb.maxX, width, height);
-    if (candidate && candidate.score >= MIN_ARC_SCORE) {
+    if (candidate && candidate.score >= MIN_ARC_SCORE && candidate.score <= MAX_ARC_SCORE) {
       results.push(candidate);
     }
   }
 
-  return results.sort((a, b) => b.score - a.score);
+  return {
+    candidates: results.sort((a, b) => b.score - a.score),
+    totalComponents: count,
+    tooSmall,
+    tooLarge,
+    tooNarrow,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -845,6 +1118,30 @@ function scoreRun(
 // ---------------------------------------------------------------------------
 // Geometry
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns true when point `p` lies inside (or on the boundary of) the convex
+ * quadrilateral defined by `corners` in vertex order (CW or CCW).
+ *
+ * Implementation: for each directed edge a→b, compute the signed area of the
+ * triangle (a, b, p) via the 2-D cross product. A point inside a convex polygon
+ * has the same sign for all edges. Zero-cross edges (p on an edge line) are
+ * treated as inside so boundary candidates are conservatively excluded.
+ */
+function isPointInConvexQuad(p: Point, corners: [Point, Point, Point, Point]): boolean {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = corners[i];
+    const b = corners[(i + 1) % 4];
+    const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    const s = cross > 0 ? 1 : cross < 0 ? -1 : 0;
+    if (s !== 0) {
+      if (sign === 0) sign = s;
+      else if (s !== sign) return false;
+    }
+  }
+  return true;
+}
 
 function pointToLineDistance(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x;
