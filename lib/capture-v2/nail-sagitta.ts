@@ -212,10 +212,15 @@ const MIN_ARC_SCORE = 0.03;
 const MIN_COMPONENT_AREA_FRAC = 0.005;
 
 /**
- * Maximum CC component area. Set high enough to include a whole-finger
- * silhouette (can occupy 40–60% of frame in a close-cropped curl shot).
+ * Maximum CC component area as a fraction of detection-image area.
+ *
+ * A single fingertip cross-section in a four-finger curl shot occupies
+ * roughly 3–8% of the frame. 0.12 admits individual finger components
+ * (with buffer for close framing or low-contrast merge with nail) while
+ * rejecting whole-hand silhouettes (40–60% of frame) that the previous
+ * value of 0.65 was letting through as dominant arc candidates.
  */
-const MAX_COMPONENT_AREA_FRAC = 0.65;
+const MAX_COMPONENT_AREA_FRAC = 0.12;
 
 /** Minimum absolute vertical-gradient magnitude for the gradient scan. */
 const GS_GRAD_THRESHOLD = 15;
@@ -233,8 +238,33 @@ const EDGE_MARGIN_FRAC = 0.04;
 /**
  * A single nail arc can never span more than this fraction of the image width.
  * Applied per-arc in both single and multi-arc modes.
+ *
+ * In a correctly-framed four-finger curl shot each nail spans roughly 5–10%
+ * of the frame width. 0.25 gives generous margin for close framing while
+ * reliably rejecting the hand/finger-cluster silhouette that spans 40–50%.
+ * The previous value of 0.85 permitted chord runs nearly spanning the entire
+ * frame, which caused the per-column boundary scan to trace the combined
+ * finger-cluster outline rather than individual nail arcs.
  */
-const MAX_RUN_FRAC = 0.85;
+const MAX_RUN_FRAC = 0.25;
+
+/**
+ * Scale-aware chord prefilter: applied before spatial NMS using the card
+ * homography to convert chord pixels → mm at capture time.
+ *
+ * Any candidate whose chord exceeds NAIL_W_MAX_MM × SCALE_PREFILTER_MARGIN
+ * in card-plane mm is dropped BEFORE NMS. This is the critical ordering:
+ * if a large-silhouette candidate reaches NMS with a high score it can
+ * suppress every nail-scale candidate whose x-interval overlaps it — which,
+ * for four fingers viewed end-on, is all of them.
+ *
+ * A 2× margin rejects hand-scale arcs (~100mm) while admitting nails that
+ * appear up to 44mm in card-plane-mm (e.g. a nail closer to the camera than
+ * the reference card, making it appear larger per card-plane-mm unit).
+ * Filtered candidates are still recorded in allCandidatesDebug so the
+ * diagnostics panel shows why they were removed.
+ */
+const SCALE_PREFILTER_MARGIN = 2.0;
 
 /**
  * Spatial NMS: chord x-intervals that overlap by more than this IOU fraction
@@ -318,8 +348,77 @@ export function extractMultiArc(
   // Sort by raw score descending before NMS.
   pool.sort((a, b) => b.candidate.score - a.candidate.score);
 
+  // ── Scale-aware prefilter — must run BEFORE spatial NMS ──────────────────
+  //
+  // A large-silhouette candidate (whole hand, ~100mm chord) that reaches NMS
+  // with a high score will suppress every nail-scale candidate whose x-interval
+  // overlaps it — for four fingers, all of them. Filtering before NMS gives
+  // nail-scale candidates a clean pass.
+  //
+  // If the homography is absent we skip this filter; the anatomical W-range
+  // check in buildCandidateResult still catches oversized chords downstream.
+  //
+  // Removed candidates are captured in prefilterRejects and appended to
+  // allCandidatesDebug so the diagnostics panel shows why they were dropped.
+  const prefilterRejects: ArcCandidateDebug[] = [];
+  let filteredPool = pool;
+
+  if (homography !== null) {
+    try {
+      const pxPerMm = pixelsPerMmAt(
+        homography,
+        { x: CARD_WIDTH_MM / 2, y: CARD_HEIGHT_MM / 2 },
+      );
+      if (pxPerMm > 0) {
+        const maxChordFullPx = NAIL_W_MAX_MM * pxPerMm * SCALE_PREFILTER_MARGIN;
+        filteredPool = [];
+        for (const item of pool) {
+          const { candidate, strategy } = item;
+          // downScale: detection coords × (1/downScale) = full-res coords,
+          // so chordDetPx / downScale gives the chord in full-res pixels.
+          const chordDetPx  = Math.hypot(
+            candidate.P2.x - candidate.P1.x,
+            candidate.P2.y - candidate.P1.y,
+          );
+          const chordFullPx = chordDetPx / downScale;
+          if (chordFullPx <= maxChordFullPx) {
+            filteredPool.push(item);
+          } else {
+            const chordFrac = chordFullPx / width;
+            const chordMm   = chordFullPx / pxPerMm;
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[nail-sagitta] scale-prefilter rejected — ` +
+              `chord ${chordFullPx.toFixed(0)} px (${chordMm.toFixed(1)} mm, ` +
+              `${(chordFrac * 100).toFixed(1)}% of frame) ` +
+              `> ${(NAIL_W_MAX_MM * SCALE_PREFILTER_MARGIN).toFixed(0)} mm ceiling  ` +
+              `strategy=${strategy}  rawScore=${candidate.score.toFixed(3)}`,
+            );
+            prefilterRejects.push({
+              strategy,
+              rawScore: candidate.score,
+              detectionP1:  candidate.P1,
+              detectionP2:  candidate.P2,
+              detectionApex: candidate.apex,
+              chordFrac,
+              accepted: false,
+              rejectionReason:
+                `scale-prefilter: chord ${chordMm.toFixed(1)} mm` +
+                ` > ${(NAIL_W_MAX_MM * SCALE_PREFILTER_MARGIN).toFixed(0)} mm ceiling`,
+              result: null,
+            });
+          }
+        }
+      }
+    } catch {
+      // Homography operation failed — leave pool unfiltered; downstream mm
+      // checks will still reject oversized candidates.
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Spatial NMS: collapse duplicate detections of the same nail.
-  const deduped = spatialNMS(pool);
+  const deduped = spatialNMS(filteredPool);
 
   // Process the top maxCandidates through upscaling → mm conversion → sanity.
   const toProcess = deduped.slice(0, maxCandidates);
@@ -338,7 +437,10 @@ export function extractMultiArc(
   }
   accepted.sort((a, b) => b.arcScore - a.arcScore);
 
-  return { accepted, allCandidatesDebug };
+  // Append prefilter rejects so the diagnostics panel can confirm the
+  // transition from hand-scale to nail-scale detection. They appear in the
+  // "Rejected candidates" section with reason "scale-prefilter: …".
+  return { accepted, allCandidatesDebug: [...allCandidatesDebug, ...prefilterRejects] };
 }
 
 /**
@@ -379,7 +481,9 @@ export function extractSagitta(
  *   circular; the old bbWidth/bbHeight ≥ 1.5 gate rejected whole-finger
  *   silhouettes unconditionally.
  * - Per-column top-boundary profile rather than overall extreme pixels.
- * - MAX_COMPONENT_AREA_FRAC = 0.65 to include close-framed silhouettes.
+ * - MAX_COMPONENT_AREA_FRAC = 0.12 — targets single finger-tip components.
+ *   The previous value of 0.65 admitted whole-hand silhouettes which were
+ *   producing dominant arc candidates at ~100mm chord width.
  */
 function findArcCandidatesFromBinary(binary: GrayImage): ArcCandidate[] {
   const { width, height } = binary;

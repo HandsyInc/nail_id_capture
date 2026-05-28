@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import JSZip from 'jszip';
 import LiveCaptureView, {
   CaptureDiagnostics,
 } from '@/components/capture-v2/LiveCaptureView';
@@ -43,8 +44,98 @@ type Captured = {
 type SessionCapture = {
   preview: string;
   spec: ShotSpec;
+  /** Zero-based index into CAPTURE_SEQUENCE — used for filename numbering. */
+  stepIndex: number;
   diagnostics: CaptureDiagnostics;
 };
+
+// ---------------------------------------------------------------------------
+// Download helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the filename for a captured step.
+ *
+ * Pattern: {step:02d}_{hand}_{finger|group}_{type}.jpg
+ *   01_left_thumb_width.jpg
+ *   06_right_thumb_width.jpg
+ *   11_left_four_finger_curl.jpg
+ *   13_left_thumb_curl.jpg
+ */
+function buildFilename(stepIndex: number, spec: ShotSpec): string {
+  const n = String(stepIndex + 1).padStart(2, '0');
+  if (spec.shotType === 'palm-up' && spec.finger) {
+    return `${n}_${spec.hand}_${spec.finger}_width.jpg`;
+  }
+  if (spec.shotType === 'curl-four-finger') {
+    return `${n}_${spec.hand}_four_finger_curl.jpg`;
+  }
+  // curl-thumb
+  return `${n}_${spec.hand}_thumb_curl.jpg`;
+}
+
+/**
+ * Bundle all captured images + a session JSON into a single .zip and trigger
+ * a browser download. Uses `compression: 'STORE'` for JPEG files (already
+ * compressed — DEFLATE would waste time and save almost nothing) and default
+ * DEFLATE for the small JSON file.
+ *
+ * `preview` is a full-resolution data URL (the same bytes sent to the
+ * backend); extracting the base64 payload gives us the original JPEG bytes.
+ */
+async function downloadSession(captures: SessionCapture[]): Promise<void> {
+  const zip = new JSZip();
+  const images = zip.folder('images')!;
+
+  for (const capture of captures) {
+    const filename = buildFilename(capture.stepIndex, capture.spec);
+    // preview is "data:image/jpeg;base64,<bytes>" — extract the base64 payload
+    const base64 = capture.preview.split(',')[1];
+    images.file(filename, base64, { base64: true, compression: 'STORE' });
+  }
+
+  // Session metadata — one row per capture for easy spreadsheet import
+  const sessionMeta = {
+    sessionTimestamp: new Date().toISOString(),
+    captureCount: captures.length,
+    shots: captures.map((c) => ({
+      stepNumber: c.stepIndex + 1,
+      filename: buildFilename(c.stepIndex, c.spec),
+      label: c.spec.label,
+      shotType: c.spec.shotType,
+      hand: c.spec.hand,
+      finger: c.spec.finger ?? null,
+      homographyScalePxPerMm: c.diagnostics.homographyScalePxPerMm,
+      naiveCardEdgeScalePxPerMm: c.diagnostics.naiveCardEdgeScalePxPerMm,
+      normalizedWidth: c.diagnostics.normalizedWidth,
+      normalizedHeight: c.diagnostics.normalizedHeight,
+      normalizedOrientation: c.diagnostics.normalizedOrientation,
+      captureLatencyMs: c.diagnostics.captureLatencyMs,
+      homographyResidualPx: c.diagnostics.homographyResidualPx,
+      dimensionsPreserved:
+        c.diagnostics.normalizedWidth > 0 &&
+        c.diagnostics.normalizedWidth === (c.diagnostics.actualSettings as any)?.width,
+    })),
+  };
+  zip.file('session.json', JSON.stringify(sessionMeta, null, 2));
+
+  const blob = await zip.generateAsync({ type: 'blob' });
+
+  const timestamp = new Date()
+    .toISOString()
+    .slice(0, 19)
+    .replace(/:/g, '-');
+  const zipName = `capture-session-${timestamp}.zip`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = zipName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 export default function CaptureV2Page() {
   const [captured, setCaptured] = useState<Captured | null>(null);
@@ -76,6 +167,7 @@ export default function CaptureV2Page() {
         {
           preview: captured.preview,
           spec: CAPTURE_SEQUENCE[currentStep],
+          stepIndex: currentStep,
           diagnostics: captured.diagnostics,
         },
       ]);
@@ -471,7 +563,8 @@ function Chip({
 /**
  * Completion panel shown after the last step. Displays a thumbnail grid of
  * every accepted capture so you can verify labels, framing, and resolution
- * at a glance before starting a new session. Skipped steps have no tile.
+ * at a glance. The "Download session" button bundles all images + a JSON
+ * diagnostics file into a single .zip for offline Postman testing.
  */
 function CompletionPanel({
   captures,
@@ -480,19 +573,49 @@ function CompletionPanel({
   captures: SessionCapture[];
   onRestart: () => void;
 }) {
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   const palmUp = captures.filter((c) => c.spec.shotType === 'palm-up');
   const curl   = captures.filter((c) => c.spec.shotType !== 'palm-up');
+
+  async function handleDownload() {
+    if (captures.length === 0) return;
+    setIsDownloading(true);
+    setDownloadError(null);
+    try {
+      await downloadSession(captures);
+    } catch (err: any) {
+      setDownloadError(err?.message ?? 'Download failed — check the browser console.');
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  // px/mm stats across palm-up captures that have a homography scale value
+  const scaleValues = palmUp
+    .map((c) => c.diagnostics.homographyScalePxPerMm)
+    .filter((v): v is number => v !== null);
+  const scaleMin = scaleValues.length > 0 ? Math.min(...scaleValues) : null;
+  const scaleMax = scaleValues.length > 0 ? Math.max(...scaleValues) : null;
+  const scaleMean =
+    scaleValues.length > 0
+      ? scaleValues.reduce((a, b) => a + b, 0) / scaleValues.length
+      : null;
 
   return (
     <div className="space-y-5">
       {/* Summary header */}
-      <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/40 backdrop-blur p-6 text-center text-white">
-        <div className="text-3xl mb-3">&#10003;</div>
-        <p className="text-xl font-semibold mb-1">
-          {captures.length} shot{captures.length !== 1 ? 's' : ''} captured
-        </p>
+      <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/40 backdrop-blur p-6 text-white">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-xl font-semibold">
+            {captures.length} shot{captures.length !== 1 ? 's' : ''} captured
+          </p>
+          <span className="text-2xl">&#10003;</span>
+        </div>
         <p className="text-sm text-white/60">
-          {palmUp.length} width (top-down) · {curl.length} IC (curl)
+          {palmUp.length} width (top-down)
+          {curl.length > 0 ? ` · ${curl.length} curl` : ''}
         </p>
         {captures.length < CAPTURE_SEQUENCE.length && (
           <p className="text-xs text-amber-400/70 mt-1">
@@ -500,19 +623,67 @@ function CompletionPanel({
             {CAPTURE_SEQUENCE.length - captures.length !== 1 ? 's' : ''} skipped
           </p>
         )}
+
+        {/* px/mm consistency summary — key repeatability signal */}
+        {scaleValues.length > 1 && scaleMin !== null && scaleMax !== null && scaleMean !== null && (
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <p className="text-xs text-white/50 uppercase tracking-wide mb-1">px/mm — width shots</p>
+            <p className="text-sm font-mono text-white/80">
+              {scaleMean.toFixed(2)} avg
+              <span className="text-white/45 ml-2">
+                ({scaleMin.toFixed(2)} – {scaleMax.toFixed(2)} range,{' '}
+                {((scaleMax - scaleMin) / scaleMean * 100).toFixed(1)}% spread)
+              </span>
+            </p>
+            <p className="text-xs text-white/40 mt-0.5">
+              {((scaleMax - scaleMin) / scaleMean * 100) < 3
+                ? 'Spread < 3% — consistent framing ✓'
+                : ((scaleMax - scaleMin) / scaleMean * 100) < 6
+                  ? 'Spread 3–6% — acceptable for testing'
+                  : 'Spread > 6% — framing varied significantly'}
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* Download button */}
+      {captures.length > 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={handleDownload}
+            disabled={isDownloading}
+            className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/40 disabled:cursor-not-allowed px-6 py-3 text-white font-medium transition-colors"
+          >
+            {isDownloading
+              ? 'Preparing download…'
+              : `Download session (${captures.length} image${captures.length !== 1 ? 's' : ''} + JSON)`}
+          </button>
+          <p className="text-xs text-white/40 text-center">
+            ZIP contains labeled JPEGs + session.json with px/mm diagnostics
+          </p>
+          {downloadError && (
+            <p className="text-xs text-red-400 text-center">{downloadError}</p>
+          )}
+        </div>
+      )}
 
       {/* Thumbnail grid — 2 across on mobile, 3 on wider screens */}
       {captures.length > 0 && (
         <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
           <p className="text-xs text-white/50 uppercase tracking-wide font-medium mb-3">
-            Captured shots — verify labels and framing
+            Verify labels and framing
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {captures.map((c, i) => {
               const dimOk =
                 c.diagnostics.normalizedWidth > 0 &&
                 c.diagnostics.normalizedHeight > 0;
+              const scale = c.diagnostics.homographyScalePxPerMm;
+              // Flag if this shot's px/mm is >5% from session mean
+              const scaleOutlier =
+                scale !== null && scaleMean !== null
+                  ? Math.abs(scale - scaleMean) / scaleMean > 0.05
+                  : false;
               return (
                 <div key={i} className="space-y-1.5">
                   <div className="rounded-xl overflow-hidden border border-white/10 bg-black aspect-[3/4]">
@@ -531,12 +702,14 @@ function CompletionPanel({
                       ? `${c.diagnostics.normalizedWidth}×${c.diagnostics.normalizedHeight}`
                       : 'dims unknown'}
                   </p>
-                  {/* Scale readout — present only when card was detected */}
-                  {c.diagnostics.homographyScalePxPerMm !== null && (
-                    <p className="text-[10px] text-white/35 text-center font-mono">
-                      {c.diagnostics.homographyScalePxPerMm.toFixed(1)} px/mm
+                  {scale !== null && (
+                    <p className={`text-[10px] text-center font-mono ${scaleOutlier ? 'text-amber-400' : 'text-white/35'}`}>
+                      {scale.toFixed(2)} px/mm{scaleOutlier ? ' ⚠' : ''}
                     </p>
                   )}
+                  <p className="text-[10px] text-white/25 text-center font-mono">
+                    {buildFilename(c.stepIndex, c.spec)}
+                  </p>
                 </div>
               );
             })}
