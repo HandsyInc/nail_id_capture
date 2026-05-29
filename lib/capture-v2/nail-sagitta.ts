@@ -224,6 +224,16 @@ export type ArcPipelineCounts = {
    * wide) which lands squarely in the NAIL_W range and forms a bright CC.
    */
   cardRegionRejectCount: number;
+  /**
+   * Total candidates added to the pool from all high-threshold bright sweep
+   * passes combined (all offsets in HIGH_THRESHOLD_OFFSETS). Zero means none
+   * of the sweep levels produced a qualifying CC — either the nail plates are
+   * too dim at high threshold (aggressive over-exclusion) or the image has
+   * very low contrast overall. Non-zero means at least one sweep level found
+   * nail-plate-scale structure; check allCandidatesDebug strategy='cc-bright-hi'
+   * entries to see whether they were accepted or rejected and why.
+   */
+  ccBrightHiPass: number;
 };
 
 /**
@@ -260,8 +270,23 @@ export type MultiArcResult = {
 /** Long-edge resolution used for detection (matches card-detector). */
 const DETECT_LONG_EDGE = 1200;
 
-/** Minimum fraction of detection-image width the chord must span. */
-const MIN_CHORD_FRAC = 0.03;
+/**
+ * Minimum fraction of detection-image width the chord must span.
+ *
+ * At detection scale (~3.6 px/mm for typical capture distance) a pinky nail
+ * (~7 mm) produces a chord of ~25 px in a ~900 px wide detection image — that
+ * is 2.8% of width, below the previous 3.0% floor. Lowering to 2.5% (22 px
+ * floor at 900 px) ensures pinky-scale CCs reach the arc detector rather than
+ * being silently discarded as tooNarrow. The arc-score and anatomy gates
+ * (NAIL_W_MIN_MM, NAIL_H range, IC range) still reject non-nail structures
+ * that are wide enough to clear this floor.
+ *
+ * History: was 0.03 — empirically excluded pinky nail plates at typical
+ * capture distances. Lowered to 0.025 after field data showed ring/pinky
+ * absent from all candidates despite sweep producing 0 tooNarrow counts
+ * (area floor was rejecting them first; both floors needed correction).
+ */
+const MIN_CHORD_FRAC = 0.025;
 
 /**
  * Minimum arc score (sagitta / chord). Rejects flat features (card edges,
@@ -282,23 +307,27 @@ const MAX_ARC_SCORE = 0.50;
 /**
  * Minimum CC component area as a fraction of detection-image area.
  *
- * In an end-on curl shot the nail plate appears as a bright curved band across
- * the top of the finger cross-section. In detection space (900×1200) at
- * ~4 px/mm the nail plate bright-CC component spans roughly 57px × 15px ≈ 855px
- * ≈ 0.08% of detection area. The previous value of 0.5% (5 400px) was filtering
- * out nail-plate-scale bright components entirely, leaving only the larger
- * (and geometrically incorrect) full-finger cross-section components in the pool.
+ * At detection scale (~3.6 px/mm for typical capture distance) the nail plate
+ * CC sizes in a 900×1200 detection frame are:
  *
- * 0.03% (324px in a 900×1200 detection frame) admits shallow nail-plate CCs
- * (~57 × 10px ≈ 570px) while the secondary bbWidth check (MIN_CHORD_FRAC)
- * still rejects compact noise blobs whose width < 3% of the image — those are
- * too narrow to be nail arcs and are counted as tooNarrow in pipelineCounts.
+ *   index  (~10 mm):  36 px wide × 14 px high ≈ 400 px  (0.037% of frame)
+ *   middle (~10 mm):  36 px wide × 12 px high ≈ 340 px  (0.031% of frame)
+ *   ring   (~8 mm):   29 px wide × 12 px high ≈ 240 px  (0.022% of frame)
+ *   pinky  (~7 mm):   25 px wide × 10 px high ≈ 160 px  (0.015% of frame)
  *
- * History: started at 0.5% (5 400px floor, filtered all nail-plate CCs).
- * Lowered to 0.1% (Fix 3) which was still above the ~855px nail-plate estimate.
- * Now at 0.03% after field data showed 150/154 cc-bright components rejected sm.
+ * These estimates tighten further at high threshold (cc-bright-hi passes) where
+ * only the brightest nail-plate pixels survive, shrinking the CC to perhaps
+ * 60–70% of the full-plate area.
+ *
+ * At 0.01% (108 px in a 900×1200 frame) ring (~240 px) and pinky (~160 px)
+ * CCs both clear the floor. The secondary MIN_CHORD_FRAC gate (2.5% of width
+ * ≈ 22 px) rejects narrow noise blobs that pass on area alone.
+ *
+ * History: started at 0.5% → 0.1% (Fix 3) → 0.03% (field data, 150/154 sm)
+ * → 0.01% (field data: ring/pinky absent from all candidates because their
+ * ~160–240 px CCs fell below the 324 px floor at typical capture distance).
  */
-const MIN_COMPONENT_AREA_FRAC = 0.0003;
+const MIN_COMPONENT_AREA_FRAC = 0.0001;
 
 /**
  * Maximum CC component area as a fraction of detection-image area.
@@ -379,19 +408,34 @@ const SCALE_PREFILTER_MARGIN = 2.0;
 const NMS_IOU_THRESHOLD = 0.7;
 
 /**
- * Threshold increment added on top of the Otsu level for the high-threshold
- * bright pass (`cc-bright-hi` strategy).
+ * Threshold offsets added on top of the Otsu level for the high-threshold
+ * bright sweep (`cc-bright-hi` strategy).
  *
  * Motivation: nail plate luminance (~175–200) sits above surrounding skin
- * (~140–160). The standard Otsu threshold often lands between them, so nail
- * plate and skin merge into one finger-scale bright CC. Raising the threshold
- * by this offset excludes skin pixels while retaining the nail plate, giving
- * the nail plate an isolated bright CC at the correct (~12mm) scale.
+ * (~140–160). The standard Otsu threshold often lands between background and
+ * skin (~100–150), so skin and nail plate both appear bright and merge into a
+ * single finger-scale CC. Raising the threshold above skin luminance isolates
+ * the nail plate as its own CC at the correct (~8–14 mm) scale.
  *
- * 30 units above Otsu is a starting point. Tune upward if skin still bleeds
- * into the high-threshold CC; tune downward if nail plates disappear entirely.
+ * A single fixed offset of +30 only clears skin when Otsu ≥ 135 (so that
+ * Otsu+30 ≥ 165, above the skin distribution). In practice Otsu varies from
+ * ~100 to ~150 depending on background luminance and lighting — when Otsu is
+ * low, +30 still lands inside the skin distribution and the nail+skin blob
+ * persists. Sweeping multiple offsets ensures at least one pass clears skin
+ * across the full observed range of Otsu values:
+ *
+ *   Otsu ~100 → need offset ~65–75  (+60 gets close; +70 would overshoot nail)
+ *   Otsu ~120 → need offset ~45–55  (+50 is ideal)
+ *   Otsu ~140 → need offset ~25–35  (+30 or +40 is ideal)
+ *   Otsu ~150 → need offset ~15–25  (+30 slightly aggressive but ok)
+ *
+ * Offsets below +30 are omitted — they sit within or near the skin luminance
+ * range and produce finger-scale CCs identical to the standard Otsu pass.
+ * NMS deduplicates candidates that adjacent offset levels find for the same
+ * nail plate (IOU of same-nail CCs across adjacent levels is typically > 0.77,
+ * well above the 0.70 NMS threshold).
  */
-const HIGH_THRESHOLD_OFFSET = 30;
+const HIGH_THRESHOLD_OFFSETS = [30, 40, 50, 60] as const;
 
 // ---------------------------------------------------------------------------
 // Anatomical sanity constants  (mm-space checks, requires homography)
@@ -458,23 +502,32 @@ export function extractMultiArc(
   for (const c of brightResult.candidates) pool.push({ candidate: c, strategy: 'cc-bright' });
   for (const c of darkResult.candidates)   pool.push({ candidate: c, strategy: 'cc-dark' });
 
-  // High-threshold bright pass: re-run CC detection at Otsu + HIGH_THRESHOLD_OFFSET
-  // to separate nail plate pixels from surrounding skin.
+  // High-threshold bright sweep: run CC detection at multiple offsets above Otsu
+  // to find the level that separates nail plate from skin for this frame's specific
+  // luminance distribution. A single offset (+30) only works when Otsu is high
+  // enough that Otsu+30 clears skin. Sweeping +30/+40/+50/+60 covers the full
+  // range of Otsu values observed in practice (~100–150).
   //
-  // At the standard Otsu level, skin luminance (~140–160) and nail plate luminance
-  // (~175–200) often both exceed the threshold, merging into a single finger-scale
-  // bright CC whose top boundary traces the whole finger outline rather than just
-  // the nail plate arc. The higher threshold excludes skin, allowing the nail plate
-  // to form its own isolated CC at nail scale (~12 mm).
+  // Near-duplicate candidates from adjacent threshold levels for the same nail
+  // plate (IOU typically > 0.77) are collapsed by NMS. Borderline duplicates
+  // from widely-separated offsets (IOU ~0.69) are caught by the downstream
+  // collision quality gate if they slip through.
   //
-  // NMS deduplication collapses any candidate this pass finds that overlaps a
-  // candidate already found by the standard Otsu pass.
-  const highThreshold     = Math.min(threshold + HIGH_THRESHOLD_OFFSET, 240);
-  const highBrightResult  = findArcCandidatesFromBinary(
-    binaryThreshold(gray, highThreshold, false),
+  // sweepLevels deduplicates the actual threshold values before running CC
+  // detection — when threshold is high and multiple offsets saturate to 240,
+  // only one pass runs rather than identical redundant passes.
+  let ccBrightHiPass = 0;
+  const sweepLevels = Array.from(
+    new Set(HIGH_THRESHOLD_OFFSETS.map(o => Math.min(threshold + o, 240))),
   );
-  for (const c of highBrightResult.candidates) {
-    pool.push({ candidate: c, strategy: 'cc-bright-hi' });
+  for (const sweepThreshold of sweepLevels) {
+    const sweepResult = findArcCandidatesFromBinary(
+      binaryThreshold(gray, sweepThreshold, false),
+    );
+    ccBrightHiPass += sweepResult.candidates.length;
+    for (const c of sweepResult.candidates) {
+      pool.push({ candidate: c, strategy: 'cc-bright-hi' });
+    }
   }
 
   // Gradient scan contributes one additional fallback candidate.
@@ -683,6 +736,7 @@ export function extractMultiArc(
       prefilterRejectCount: prefilterRejects.length,
       postNmsCount:         deduped.length,
       cardRegionRejectCount: cardRegionRejects.length,
+      ccBrightHiPass,
     },
   };
 }
@@ -744,8 +798,8 @@ type CCFindResult = {
  * - MAX_COMPONENT_AREA_FRAC = 0.12 — targets single finger-tip components.
  *   The previous value of 0.65 admitted whole-hand silhouettes which were
  *   producing dominant arc candidates at ~100mm chord width.
- * - MIN_COMPONENT_AREA_FRAC = 0.001 — admits nail-plate bright-CC components
- *   (~0.08% of detection area) that the previous 0.5% floor was rejecting.
+ * - MIN_COMPONENT_AREA_FRAC = 0.0001 — admits ring/pinky nail-plate CCs
+ *   (~160–240 px) that the previous 0.03% (324 px) floor was rejecting.
  * - MAX_ARC_SCORE = 0.50 — rejects near-circular blobs (score > 0.5) early.
  */
 function findArcCandidatesFromBinary(binary: GrayImage): CCFindResult {

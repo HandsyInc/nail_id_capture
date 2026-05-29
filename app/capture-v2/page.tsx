@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import JSZip from 'jszip';
 import LiveCaptureView, {
   CaptureDiagnostics,
@@ -139,36 +139,28 @@ async function downloadSession(captures: SessionCapture[]): Promise<void> {
         const mr = c.diagnostics.multiArcResult;
         if (!mr) return null;
         const { accepted, allCandidatesDebug, pipelineCounts } = mr;
-        const assigned = assignFingers(accepted, c.spec.hand);
+        // Quality gates (including isolation) determine the effective accepted
+        // count and confidence tier. Isolated arcs (nearest-neighbour gap >
+        // ISOLATION_PX) are structural false positives excluded from
+        // effectiveAssigned. This is why acceptedCount and curlConfidence are
+        // derived from effectiveAssigned, not from accepted.length.
+        // NOTE: assignFingers anchors from image-left. Right-hand pinky-absent
+        // misanchoring is a known bug (treated conservatively as
+        // 'partial-critical-missing'). TODO: right-hand pinky anchor fix.
+        const {
+          effectiveAssigned,
+          missingFingers,
+          curlConfidence,
+        } = computeQualityGates(accepted, c.spec.hand);
         const handWidths = palmUpWidths[c.spec.hand];
 
-        // Missingness and confidence tier.
-        // assignFingers anchors from the left of the image, so the unassigned
-        // fingers are always at the right (tail) of the order array. For a
-        // left hand this means pinky is the first to go missing — anatomically
-        // the least-critical finger for IC-based sizing. Right-hand assignment
-        // is correct when index (rightmost) is missing; if right-hand pinky
-        // (leftmost) is absent the assignment is misanchored — treated
-        // conservatively as 'partial-critical-missing'. TODO: right-hand
-        // pinky-specific anchor fix.
-        const fingerOrder = c.spec.hand === 'left' ? FINGER_ORDER_LEFT : FINGER_ORDER_RIGHT;
-        const detectedSet = new Set(assigned.map(({ finger }) => finger));
-        const missingFingers = fingerOrder.filter(f => !detectedSet.has(f));
-        const isPinkyOnlyMissing =
-          missingFingers.length === 1 && missingFingers[0] === 'pinky';
-        const curlConfidence =
-          missingFingers.length === 0          ? 'full' :
-          isPinkyOnlyMissing                   ? 'partial-pinky-missing' :
-          accepted.length >= 3                 ? 'partial-critical-missing' :
-                                                 'insufficient';
-
         return {
-          acceptedCount: accepted.length,
+          acceptedCount: effectiveAssigned.length,
           curlConfidence,
-          detectedFingers: assigned.map(({ finger }) => finger),
+          detectedFingers: effectiveAssigned.map(({ finger }) => finger),
           missingFingers,
           pipelineCounts,
-          fingers: assigned.map(({ finger, result }) => {
+          fingers: effectiveAssigned.map(({ finger, result }) => {
             const dbg = allCandidatesDebug.find(d => d.result === result) ?? null;
             const [P1, P2] = result.chordEndpointsPx;
             const palmUpW = handWidths[finger] ?? null;
@@ -219,22 +211,17 @@ async function downloadSession(captures: SessionCapture[]): Promise<void> {
     if (c.spec.shotType !== 'curl-four-finger') continue;
     const mr = c.diagnostics.multiArcResult;
     if (!mr) continue;
-    const assigned = assignFingers(mr.accepted, c.spec.hand);
+    // Quality gates match curlResults in session.json — use computeQualityGates
+    // so confidence tier and effective accepted count are consistent.
+    const {
+      effectiveAssigned: csvAssigned,
+      missingFingers: csvMissing,
+      curlConfidence: csvConfidence,
+    } = computeQualityGates(mr.accepted, c.spec.hand);
     const handWidths = palmUpWidths[c.spec.hand];
 
-    // Recompute confidence tier (matches curlResults in session.json)
-    const fingerOrder = c.spec.hand === 'left' ? FINGER_ORDER_LEFT : FINGER_ORDER_RIGHT;
-    const detectedSet = new Set(assigned.map(({ finger }) => finger));
-    const csvMissing = fingerOrder.filter(f => !detectedSet.has(f));
-    const csvPinkyOnly = csvMissing.length === 1 && csvMissing[0] === 'pinky';
-    const csvConfidence =
-      csvMissing.length === 0 ? 'full' :
-      csvPinkyOnly            ? 'partial-pinky-missing' :
-      mr.accepted.length >= 3 ? 'partial-critical-missing' :
-                                'insufficient';
-
     // Detected finger rows
-    for (const { finger, result } of assigned) {
+    for (const { finger, result } of csvAssigned) {
       const dbg = mr.allCandidatesDebug.find(d => d.result === result);
       const [P1, P2] = result.chordEndpointsPx;
       const midX = Math.round((P1.x + P2.x) / 2);
@@ -461,14 +448,14 @@ function CapturedPanel({
     <div className="space-y-5">
       <ShotContextSection shotSpec={shotSpec} />
 
-      <div className="rounded-2xl overflow-hidden border border-white/10 bg-black">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={preview}
-          alt="Captured photo preview"
-          className="w-full h-auto"
-        />
-      </div>
+      <ArcOverlayImage
+        preview={preview}
+        multiArcResult={diagnostics.multiArcResult}
+        hand={shotSpec.hand}
+        normalizedWidth={diagnostics.normalizedWidth}
+        normalizedHeight={diagnostics.normalizedHeight}
+        shotSpec={shotSpec}
+      />
 
       <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-5 text-white">
         <p className="text-sm font-medium mb-3">Diagnostics</p>
@@ -1144,6 +1131,336 @@ function assignFingers(
   return sorted.map((result, i) => ({ finger: order[i], result }));
 }
 
+// ---------------------------------------------------------------------------
+// Quality gates
+// ---------------------------------------------------------------------------
+
+/**
+ * Thresholds used by computeQualityGates — module-level so they are shared
+ * between the diagnostics display (SagittaSection) and the session JSON export
+ * (downloadSession). Do not inline per-call; changes here affect both paths.
+ */
+/** Arc chord above this → finger likely wasn't end-on (side-wall in view). */
+const WIDE_CHORD_MM = 15;
+/** Two arc midpoints closer than this → double-detection of a single finger. */
+const COLLISION_PX = 50;
+/**
+ * An accepted arc whose nearest-neighbour midpoint gap exceeds this is treated
+ * as a structural false positive — card edge, white-paper region, or reflection
+ * that fell outside the card-footprint exclusion zone. These arcs are excluded
+ * from effectiveAssigned and treated as missing fingers for curlConfidence.
+ */
+const ISOLATION_PX = 400;
+/**
+ * Three consecutive accepted arcs (by x-order) whose midpoints span less than
+ * this are almost certainly multiple detections from a single finger's CC.
+ */
+const MIN_TRIPLET_SPREAD_PX = 200;
+
+type QualityGateResult = {
+  /** All assigned arcs sorted left-to-right by x-midpoint (pre-isolation). */
+  assigned: { finger: Finger; result: SagittaResult }[];
+  /**
+   * Assigned arcs after removing spatially isolated false positives (gap from
+   * nearest neighbour > ISOLATION_PX). Use this for the effective accepted count,
+   * curlConfidence, and the fingers[] export — isolated arcs inflate raw
+   * accepted.length without providing valid nail measurements.
+   */
+  effectiveAssigned: { finger: Finger; result: SagittaResult }[];
+  /** Fingers whose accepted arc chord exceeded WIDE_CHORD_MM. */
+  wideFingers: Finger[];
+  /** Adjacent arc pairs whose midpoints are closer than COLLISION_PX. */
+  collisionPairs: { label: string; gapPx: number }[];
+  /** Three-arc runs whose total x-span is below MIN_TRIPLET_SPREAD_PX. */
+  clusteredTriplets: { label: string; spreadPx: number }[];
+  /**
+   * Arcs excluded from effectiveAssigned because their nearest-neighbour gap
+   * exceeded ISOLATION_PX. Listed here so the retry banner can name them.
+   */
+  isolatedArcs: { finger: Finger; gapPx: number }[];
+  /** Fingers in the expected hand order absent from effectiveAssigned. */
+  missingFingers: Finger[];
+  /** Confidence tier based on effectiveAssigned (isolated arcs treated as missing). */
+  curlConfidence: 'full' | 'partial-pinky-missing' | 'partial-critical-missing' | 'insufficient';
+  /** True when any quality flag fired — drives the retry banner. */
+  shouldRetry: boolean;
+};
+
+/**
+ * Apply all post-assignment quality gates to a set of accepted arc results.
+ *
+ * The isolation gate is the most consequential: arcs more than ISOLATION_PX
+ * from their nearest accepted neighbour are excluded from effectiveAssigned and
+ * treated as missing fingers for confidence-tier purposes. This prevents a
+ * far-right card-edge artifact from producing a false "4/4 full" result while
+ * the retry banner simultaneously says the capture is unusable.
+ *
+ * Called from both SagittaSection (UI display) and downloadSession (JSON/CSV
+ * export) so confidence tier and effective count are consistent everywhere.
+ */
+function computeQualityGates(
+  accepted: SagittaResult[],
+  hand: 'left' | 'right',
+): QualityGateResult {
+  const fingerOrder = hand === 'left' ? FINGER_ORDER_LEFT : FINGER_ORDER_RIGHT;
+  const assigned = assignFingers(accepted, hand);
+
+  const sortedByX = [...assigned]
+    .map(({ finger, result }) => {
+      const [P1, P2] = result.chordEndpointsPx;
+      return {
+        finger,
+        midX: (P1.x + P2.x) / 2,
+        minX: Math.min(P1.x, P2.x),
+        maxX: Math.max(P1.x, P2.x),
+        result,
+      };
+    })
+    .sort((a, b) => a.midX - b.midX);
+
+  const wideFingers = assigned
+    .filter(({ result }) => (result.chordWidthMm ?? 0) > WIDE_CHORD_MM)
+    .map(({ finger }) => finger);
+
+  const collisionPairs: { label: string; gapPx: number }[] = [];
+  for (let i = 1; i < sortedByX.length; i++) {
+    const gapPx = Math.round(sortedByX[i].midX - sortedByX[i - 1].midX);
+    if (gapPx < COLLISION_PX) {
+      collisionPairs.push({
+        label: `${sortedByX[i - 1].finger}/${sortedByX[i].finger}`,
+        gapPx,
+      });
+    }
+  }
+
+  const clusteredTriplets: { label: string; spreadPx: number }[] = [];
+  for (let i = 0; i + 2 < sortedByX.length; i++) {
+    const spreadPx = Math.round(sortedByX[i + 2].midX - sortedByX[i].midX);
+    if (spreadPx < MIN_TRIPLET_SPREAD_PX) {
+      clusteredTriplets.push({
+        label: `${sortedByX[i].finger}/${sortedByX[i + 1].finger}/${sortedByX[i + 2].finger}`,
+        spreadPx,
+      });
+    }
+  }
+
+  const isolatedArcs: { finger: Finger; gapPx: number }[] = [];
+  for (let i = 0; i < sortedByX.length; i++) {
+    const prevGap = i > 0 ? sortedByX[i].midX - sortedByX[i - 1].midX : Infinity;
+    const nextGap =
+      i < sortedByX.length - 1 ? sortedByX[i + 1].midX - sortedByX[i].midX : Infinity;
+    const nearestGap = Math.round(Math.min(prevGap, nextGap));
+    if (nearestGap > ISOLATION_PX) {
+      isolatedArcs.push({ finger: sortedByX[i].finger, gapPx: nearestGap });
+    }
+  }
+
+  // Effective assignment: remove isolated false positives before computing confidence.
+  const isolatedFingerSet = new Set(isolatedArcs.map(a => a.finger));
+  const effectiveAssigned = assigned.filter(({ finger }) => !isolatedFingerSet.has(finger));
+  const effectiveDetectedSet = new Set(effectiveAssigned.map(({ finger }) => finger));
+  const missingFingers = fingerOrder.filter(f => !effectiveDetectedSet.has(f));
+  const isPinkyOnlyMissing = missingFingers.length === 1 && missingFingers[0] === 'pinky';
+  const curlConfidence: QualityGateResult['curlConfidence'] =
+    missingFingers.length === 0 ? 'full' :
+    isPinkyOnlyMissing          ? 'partial-pinky-missing' :
+    effectiveAssigned.length >= 3 ? 'partial-critical-missing' :
+                                    'insufficient';
+
+  const shouldRetry =
+    wideFingers.length > 0 ||
+    collisionPairs.length > 0 ||
+    clusteredTriplets.length > 0 ||
+    isolatedArcs.length > 0;
+
+  return {
+    assigned,
+    effectiveAssigned,
+    wideFingers,
+    collisionPairs,
+    clusteredTriplets,
+    isolatedArcs,
+    missingFingers,
+    curlConfidence,
+    shouldRetry,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Arc overlay visualization
+// ---------------------------------------------------------------------------
+
+/** Per-finger stroke/fill colours used in the curl-shot arc overlay. */
+const FINGER_COLORS: Record<string, string> = {
+  index:  '#60a5fa', // blue-400
+  middle: '#34d399', // emerald-400
+  ring:   '#f472b6', // pink-400
+  pinky:  '#fbbf24', // amber-400
+};
+
+/**
+ * Preview image with a canvas arc-annotation overlay for curl-four-finger shots.
+ *
+ * For every accepted arc (post quality-gate) the overlay draws:
+ *   • The quadratic Bezier arc from P1 → apex → P2 (coloured by finger)
+ *   • The chord line P1–P2 (semi-transparent)
+ *   • Dots at P1, P2, and apex
+ *   • Finger name label near the apex
+ *
+ * Arcs removed by the isolation gate are drawn in dashed red so the investigator
+ * can see what was caught as a false positive alongside the accepted nails.
+ *
+ * For any other shot type the component renders as a plain image with no overlay.
+ */
+function ArcOverlayImage({
+  preview,
+  multiArcResult,
+  hand,
+  normalizedWidth,
+  normalizedHeight,
+  shotSpec,
+}: {
+  preview: string;
+  multiArcResult: MultiArcResult | null | undefined;
+  hand: 'left' | 'right';
+  normalizedWidth: number;
+  normalizedHeight: number;
+  shotSpec: ShotSpec | null;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const showOverlay =
+    shotSpec?.shotType === 'curl-four-finger' &&
+    !!multiArcResult &&
+    normalizedWidth > 0 &&
+    normalizedHeight > 0;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !showOverlay || !multiArcResult) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const { effectiveAssigned, isolatedArcs, assigned } = computeQualityGates(
+      multiArcResult.accepted,
+      hand,
+    );
+    const isolatedFingerSet = new Set(isolatedArcs.map(a => a.finger));
+
+    // Draw isolated arcs first so effective arcs render on top.
+    for (const { finger, result } of assigned) {
+      if (isolatedFingerSet.has(finger)) {
+        drawArcAnnotation(
+          ctx, result, 'rgba(239,68,68,0.6)', `${finger} ✕`, normalizedWidth, true,
+        );
+      }
+    }
+    for (const { finger, result } of effectiveAssigned) {
+      drawArcAnnotation(
+        ctx, result, FINGER_COLORS[finger] ?? '#ffffff', finger, normalizedWidth, false,
+      );
+    }
+  }, [multiArcResult, hand, normalizedWidth, normalizedHeight, showOverlay]);
+
+  return (
+    <div className="rounded-2xl overflow-hidden border border-white/10 bg-black relative">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={preview}
+        alt="Captured photo preview"
+        className="w-full h-auto block"
+      />
+      {showOverlay && (
+        <canvas
+          ref={canvasRef}
+          width={normalizedWidth}
+          height={normalizedHeight}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Draw chord, arc, endpoint dots, and finger label for one arc result.
+ *
+ * Arc curve: quadratic Bezier with control point cp = 2·apex − ½(P1+P2).
+ * At t = 0.5 the curve passes exactly through apex. For arc scores < 0.4
+ * (all physically plausible nail plates) this is visually identical to the
+ * true circumscribed-circle arc and avoids angle-direction edge cases.
+ *
+ * All sizes scale with imageWidth so annotations look proportionate across
+ * device resolutions (iPhone rear ≈ 3024 px wide, front ≈ 1440 px wide).
+ *
+ * @param isolated  When true, renders with a dashed stroke and reduced opacity
+ *                  to indicate the arc was excluded by the isolation gate.
+ */
+function drawArcAnnotation(
+  ctx: CanvasRenderingContext2D,
+  result: SagittaResult,
+  color: string,
+  label: string,
+  imageWidth: number,
+  isolated: boolean,
+): void {
+  const [P1, P2] = result.chordEndpointsPx;
+  const apex = result.apexPx;
+
+  const lw       = Math.max(8,  Math.round(imageWidth * 0.005));
+  const dotR     = Math.max(12, Math.round(imageWidth * 0.008));
+  const apexR    = Math.max(18, Math.round(imageWidth * 0.012));
+  const fontSize = Math.max(40, Math.round(imageWidth * 0.022));
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle   = color;
+  ctx.lineWidth   = lw;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  if (isolated) ctx.globalAlpha = 0.6;
+
+  // ── Bezier arc ─────────────────────────────────────────────────────────────
+  if (isolated) ctx.setLineDash([lw * 3, lw * 2]);
+  const cpX = 2 * apex.x - (P1.x + P2.x) / 2;
+  const cpY = 2 * apex.y - (P1.y + P2.y) / 2;
+  ctx.beginPath();
+  ctx.moveTo(P1.x, P1.y);
+  ctx.quadraticCurveTo(cpX, cpY, P2.x, P2.y);
+  ctx.stroke();
+
+  // ── Chord (solid, lower alpha) ──────────────────────────────────────────────
+  ctx.setLineDash([]);
+  ctx.globalAlpha = isolated ? 0.2 : 0.3;
+  ctx.beginPath();
+  ctx.moveTo(P1.x, P1.y);
+  ctx.lineTo(P2.x, P2.y);
+  ctx.stroke();
+
+  // ── Endpoint and apex dots ─────────────────────────────────────────────────
+  ctx.globalAlpha = isolated ? 0.6 : 1.0;
+  for (const pt of [P1, P2]) {
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, dotR, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.arc(apex.x, apex.y, apexR, 0, 2 * Math.PI);
+  ctx.fill();
+
+  // ── Label with drop shadow for legibility over any background ─────────────
+  ctx.font         = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.textBaseline = 'bottom';
+  ctx.shadowColor   = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur    = Math.round(fontSize * 0.4);
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.fillText(label, apex.x + apexR + 4, apex.y - apexR);
+
+  ctx.restore();
+}
+
 /**
  * Nail sagitta / IC diagnostics section.
  *
@@ -1211,10 +1528,6 @@ function SagittaSection({
     const rejected = allCandidatesDebug.filter(d => !d.accepted);
     const poolEmpty = pipelineCounts.postNmsCount === 0 && pipelineCounts.prefilterRejectCount === 0;
 
-    // Assign finger identities: sort accepted arcs left-to-right by x-midpoint,
-    // then map to finger names based on hand. Convention verified by dot-test
-    // on left-hand curl shot (2026-05-28).
-    const assigned = assignFingers(accepted, shotSpec.hand);
     // Match each accepted SagittaResult back to its ArcCandidateDebug entry by
     // reference so we can display the correct strategy label. The debug array
     // contains both accepted and rejected entries in raw-score order, which does
@@ -1222,107 +1535,28 @@ function SagittaSection({
     const debugForResult = (r: SagittaResult) =>
       allCandidatesDebug.find(d => d.result === r) ?? null;
 
-    // ── Missingness & confidence tier ───────────────────────────────────────
-    const uiFingerOrder = shotSpec.hand === 'left' ? FINGER_ORDER_LEFT : FINGER_ORDER_RIGHT;
-    const uiDetectedSet = new Set(assigned.map(({ finger }) => finger));
-    const missingFingers = uiFingerOrder.filter(f => !uiDetectedSet.has(f));
-    const isPinkyOnlyMissing =
-      missingFingers.length === 1 && missingFingers[0] === 'pinky';
-    // 'partial-pinky-missing' = usable; 'partial-critical-missing' or
-    // 'insufficient' = retry encouraged regardless of quality gates.
-    const curlConfidence =
-      missingFingers.length === 0 ? 'full' :
-      isPinkyOnlyMissing          ? 'partial-pinky-missing' :
-      accepted.length >= 3        ? 'partial-critical-missing' :
-                                    'insufficient';
+    // Quality gates: assign fingers, detect wide chords, collisions, isolated
+    // arcs, and clustered triplets. effectiveAssigned excludes isolated false
+    // positives, so curlConfidence reflects actual usable measurements rather
+    // than the raw pipeline accepted count.
+    const {
+      assigned,
+      effectiveAssigned,
+      wideFingers,
+      collisionPairs,
+      clusteredTriplets,
+      isolatedArcs,
+      missingFingers,
+      curlConfidence,
+      shouldRetry,
+    } = computeQualityGates(accepted, shotSpec.hand);
 
-    // ── Pose quality flags ──────────────────────────────────────────────────
-    // WIDE_CHORD_MM: when cc-bright-hi gives a chord wider than this, the finger
-    // likely wasn't end-on — the bright CC spans skin alongside the nail plate.
-    // Empirically: all clean detections were ≤13.8 mm; bad ones were 15–21 mm.
-    const WIDE_CHORD_MM = 15;
-    // COLLISION_PX: two arc midpoints this close means a double-detection of a
-    // single finger (the other finger was obscured or fused).
-    // 150px (~11mm) flagged normal adjacent-finger spacing; empirically the only
-    // true double-detection in 8 sessions was 3px. 50px (~4mm) catches that while
-    // leaving normal gaps (80–130px) clean.
-    const COLLISION_PX = 50;
     // LOW_H_MM: sagitta this small means the arc is nearly flat. IC becomes
     // hypersensitive to h errors at this scale (small h → large IC, steep slope).
     // Soft warning per finger only — does not trigger the retry banner.
     const LOW_H_MM = 1.5;
 
-    const wideFingers = assigned
-      .filter(({ result }) => (result.chordWidthMm ?? 0) > WIDE_CHORD_MM)
-      .map(({ finger }) => finger);
-
-    // Sort by x-midpoint once; reused for both collision and overlap checks.
-    const sortedByX = [...assigned]
-      .map(({ finger, result }) => {
-        const [P1, P2] = result.chordEndpointsPx;
-        return {
-          finger,
-          midX: (P1.x + P2.x) / 2,
-          minX: Math.min(P1.x, P2.x),
-          maxX: Math.max(P1.x, P2.x),
-          result,
-        };
-      })
-      .sort((a, b) => a.midX - b.midX);
-
-    const collisionPairs: { label: string; gapPx: number }[] = [];
-    for (let i = 1; i < sortedByX.length; i++) {
-      const gapPx = Math.round(sortedByX[i].midX - sortedByX[i - 1].midX);
-      if (gapPx < COLLISION_PX) {
-        collisionPairs.push({
-          label: `${sortedByX[i - 1].finger}/${sortedByX[i].finger}`,
-          gapPx,
-        });
-      }
-    }
-
-    // Clustered triplet: any 3 consecutive arcs (by x-order) whose midpoints
-    // span less than MIN_TRIPLET_SPREAD_PX. Three separate finger nails must be
-    // at least ~2 nail-widths apart (~16 mm ≈ 200 px at 13 px/mm). A spread
-    // below this means the pipeline found 3 "arcs" inside a single finger's
-    // x-territory — almost certainly multiple detections from one source.
-    // Note: pairwise x-chord overlap alone is unreliable because ring/pinky
-    // arcs legitimately overlap in x-projection when they're at different
-    // y-positions in a tight curl.
-    const MIN_TRIPLET_SPREAD_PX = 200;
-    const clusteredTriplets: { label: string; spreadPx: number }[] = [];
-    for (let i = 0; i + 2 < sortedByX.length; i++) {
-      const spreadPx = Math.round(sortedByX[i + 2].midX - sortedByX[i].midX);
-      if (spreadPx < MIN_TRIPLET_SPREAD_PX) {
-        clusteredTriplets.push({
-          label: `${sortedByX[i].finger}/${sortedByX[i + 1].finger}/${sortedByX[i + 2].finger}`,
-          spreadPx,
-        });
-      }
-    }
-
-    // Isolated arc: an accepted arc whose nearest neighbor is farther than this.
-    // Actual adjacent nails in any curl shot are ≤ ~200 px apart (≤ ~16 mm).
-    // A gap > 400 px means the arc is spatially disconnected from the hand —
-    // almost always a card-edge, white-paper region, or reflection that the
-    // card-footprint exclusion missed because the midpoint was just outside
-    // the projected card quad.
-    const ISOLATION_PX = 400;
-    const isolatedArcs: { finger: string; gapPx: number }[] = [];
-    for (let i = 0; i < sortedByX.length; i++) {
-      const prevGap = i > 0 ? sortedByX[i].midX - sortedByX[i - 1].midX : Infinity;
-      const nextGap = i < sortedByX.length - 1 ? sortedByX[i + 1].midX - sortedByX[i].midX : Infinity;
-      const nearestGap = Math.round(Math.min(prevGap, nextGap));
-      if (nearestGap > ISOLATION_PX) {
-        isolatedArcs.push({ finger: sortedByX[i].finger, gapPx: nearestGap });
-      }
-    }
-
-    const shouldRetry =
-      wideFingers.length > 0 ||
-      collisionPairs.length > 0 ||
-      clusteredTriplets.length > 0 ||
-      isolatedArcs.length > 0;
+    const isPinkyOnlyMissing = curlConfidence === 'partial-pinky-missing';
 
     return (
       <details className="mt-4 text-xs text-white/60" open>
@@ -1333,7 +1567,7 @@ function SagittaSection({
             curlConfidence === 'partial-pinky-missing' ? 'text-amber-400' :
                                                          'text-red-400'
           }>
-            {accepted.length} / {expected} accepted
+            {effectiveAssigned.length} / {expected} accepted
             {curlConfidence === 'partial-pinky-missing' && ' — pinky IC absent'}
             {curlConfidence === 'partial-critical-missing' && ' — critical finger absent'}
             {curlConfidence === 'insufficient' && ' — insufficient'}
@@ -1424,7 +1658,7 @@ function SagittaSection({
           </div>
         )}
 
-        {assigned.map(({ finger, result }, i) => {
+        {effectiveAssigned.map(({ finger, result }, i) => {
           const [P1, P2] = result.chordEndpointsPx;
           const dbg = debugForResult(result);
           const chordWide = (result.chordWidthMm ?? 0) > WIDE_CHORD_MM;
@@ -1545,6 +1779,7 @@ function PipelineCountsSection({ counts }: { counts: ArcPipelineCounts }) {
     ccDarkTooSmall, ccDarkTooLarge, ccDarkTooNarrow,
     poolBeforePrefilter, prefilterRejectCount, postNmsCount,
     cardRegionRejectCount,
+    ccBrightHiPass,
   } = counts;
 
   // Otsu quality heuristic: values near 0 or 255 indicate low bi-modal contrast.
@@ -1582,6 +1817,10 @@ function PipelineCountsSection({ counts }: { counts: ArcPipelineCounts }) {
           <span className="text-white/30 ml-1">
             ({ccBrightTooSmall}sm {ccBrightTooLarge}lg {ccBrightTooNarrow}nw)
           </span>
+        </span>
+        <span className={`col-span-2 ${ccBrightHiPass > 0 ? 'text-emerald-400/70' : 'text-white/35'}`}>
+          cc-bright-hi sweep / {ccBrightHiPass} cands
+          <span className="text-white/25 ml-1">(+30/+40/+50/+60 above otsu)</span>
         </span>
         <span className="text-white/50 col-span-2">
           cc-dark {ccDarkTotal} total / {ccDarkPass} pass
