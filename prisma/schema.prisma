@@ -1,0 +1,288 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum NotificationPreference {
+  EMAIL
+  SMS
+  BOTH
+  NONE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIAL
+  SUSPENDED
+  CANCELLED
+}
+
+enum ClientStatus {
+  PENDING_CAPTURE
+  PROCESSING
+  READY
+  ACTIVE
+  NEEDS_RECAPTURE
+}
+
+enum CaptureSessionType {
+  INITIAL
+  RECAPTURE
+}
+
+enum CaptureSessionStatus {
+  PENDING
+  SUBMITTED
+  PROCESSING
+  COMPLETE
+  NEEDS_RETAKE
+}
+
+enum ImageType {
+  TOP_DOWN
+  TRANSVERSE
+  LONGITUDINAL
+  PALM_UP_CURVATURE
+}
+
+enum Hand {
+  LEFT
+  RIGHT
+}
+
+enum Finger {
+  THUMB
+  INDEX
+  MIDDLE
+  RING
+  PINKY
+}
+
+enum RecaptureReason {
+  BLURRY
+  MISSING_ANGLE
+  FINGER_BLOCKED
+  LIGHTING_ISSUE
+  OTHER
+}
+
+enum RecommendationStatus {
+  RECOMMENDED
+  NOT_RECOMMENDED
+}
+
+enum FitNoteCategory {
+  PRODUCT_LINE
+  PRODUCT
+  LEARNING
+}
+
+enum RevisionReason {
+  TOO_TIGHT
+  TOO_LOOSE
+  SIDEWALL_GAP
+  CLIENT_PREFERENCE
+  ARTIST_PREFERENCE
+  OTHER
+}
+
+enum RevisionDirection {
+  UP
+  DOWN
+}
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+model Artist {
+  id                     String                 @id @default(cuid())
+  name                   String
+  handle                 String                 @unique
+  email                  String                 @unique
+  passwordHash           String
+  subscriptionStatus     SubscriptionStatus     @default(TRIAL)
+  notificationPreference NotificationPreference @default(EMAIL)
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  clients         Client[]
+  captureSessions CaptureSession[]
+  recommendations Recommendation[]
+  revisions       Revision[]
+}
+
+model Client {
+  id          String       @id @default(cuid())
+  artistId    String
+  handsyFitId String?
+  name        String
+  email       String?
+  status      ClientStatus @default(PENDING_CAPTURE)
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  artist          Artist           @relation(fields: [artistId], references: [id])
+  handsyFit       HandsyFit?       @relation(fields: [handsyFitId], references: [id])
+  captureSessions CaptureSession[]
+  recommendations Recommendation[]
+
+  @@index([artistId])
+}
+
+model HandsyFit {
+  id               String   @id @default(cuid())
+  publicIdentifier String   @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  clients          Client[]
+  captureSessions  CaptureSession[]
+  geometryPackages GeometryPackage[]
+  recommendations  Recommendation[]
+}
+
+model GeometryPackage {
+  id               String   @id @default(cuid())
+  handsyFitId      String
+  captureSessionId String?
+  version          Int
+  isCurrent        Boolean  @default(false)
+  pipelineVersion  String
+  widthData        Json?
+  lengthData       Json?
+  // Layer 4 — null until product scans arrive
+  icData           Json?
+  hlData           Json?
+  apPercent        Float?
+  rawVariables     Json?
+  createdAt        DateTime @default(now())
+
+  handsyFit       HandsyFit        @relation(fields: [handsyFitId], references: [id])
+  captureSession  CaptureSession?  @relation(fields: [captureSessionId], references: [id])
+  recommendations Recommendation[]
+
+  @@unique([handsyFitId, version])
+  @@index([handsyFitId, isCurrent])
+}
+
+model CaptureSession {
+  id                   String               @id @default(cuid())
+  clientId             String
+  artistId             String
+  handsyFitId          String?
+  type                 CaptureSessionType   @default(INITIAL)
+  status               CaptureSessionStatus @default(PENDING)
+  captureLinkToken     String?              @unique
+  captureLinkExpiresAt DateTime?
+  submittedAt          DateTime?
+  processedAt          DateTime?
+  retakeReason         RecaptureReason?
+  retakeFingers        Json?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  client           Client            @relation(fields: [clientId], references: [id])
+  artist           Artist            @relation(fields: [artistId], references: [id])
+  handsyFit        HandsyFit?        @relation(fields: [handsyFitId], references: [id])
+  images           CaptureImage[]
+  geometryPackages GeometryPackage[]
+
+  @@index([clientId])
+  @@index([artistId])
+}
+
+model CaptureImage {
+  id             String    @id @default(cuid())
+  sessionId      String
+  imageType      ImageType
+  hand           Hand
+  finger         Finger
+  sequenceNumber Int
+  storageKey     String
+  fileSizeBytes  Int?
+  mimeType       String?
+  capturedAt     DateTime?
+  uploadedAt     DateTime  @default(now())
+
+  session CaptureSession @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId])
+}
+
+model Product {
+  id               String   @id @default(cuid())
+  brand            String
+  productLine      String
+  shape            String
+  length           String
+  displayName      String
+  isActive         Boolean  @default(true)
+  // Layer 4 — null until product architecture scans arrive
+  architectureData Json?
+  createdAt        DateTime @default(now())
+
+  recommendations Recommendation[]
+
+  @@unique([brand, productLine, shape, length])
+}
+
+model Recommendation {
+  id                String               @id @default(cuid())
+  artistId          String
+  clientId          String
+  handsyFitId       String
+  productId         String
+  geometryPackageId String
+  status            RecommendationStatus @default(RECOMMENDED)
+  sizesLeft         Json
+  sizesRight        Json
+  isSaved           Boolean              @default(false)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  artist          Artist          @relation(fields: [artistId], references: [id])
+  client          Client          @relation(fields: [clientId], references: [id])
+  handsyFit       HandsyFit       @relation(fields: [handsyFitId], references: [id])
+  product         Product         @relation(fields: [productId], references: [id])
+  geometryPackage GeometryPackage @relation(fields: [geometryPackageId], references: [id])
+  fitNotes        FitNote[]
+  revisions       Revision[]
+
+  @@index([clientId])
+  @@index([artistId])
+}
+
+model FitNote {
+  id               String          @id @default(cuid())
+  recommendationId String
+  category         FitNoteCategory
+  text             String
+  sequence         Int
+
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id])
+
+  @@index([recommendationId])
+}
+
+model Revision {
+  id               String            @id @default(cuid())
+  recommendationId String
+  artistId         String
+  hand             Hand
+  finger           Finger
+  originalSize     Decimal
+  revisedSize      Decimal
+  direction        RevisionDirection
+  reason           RevisionReason
+  createdAt        DateTime          @default(now())
+
+  recommendation Recommendation @relation(fields: [recommendationId], references: [id])
+  artist         Artist         @relation(fields: [artistId], references: [id])
+
+  @@index([recommendationId])
+}
