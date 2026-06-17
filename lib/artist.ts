@@ -15,14 +15,24 @@ export async function getOrCreateArtist() {
   }
 
   return prisma.artist.upsert({
-    where: {
-      clerkId: user.id,
+  where: {
+    clerkId: user.id,
+  },
+  update: {},
+  create: {
+    clerkId: user.id,
+    email,
+    name: user.fullName ?? email,
+  },
+  include: {
+    _count: {
+      select: {
+        clients: true,
+        captureSessions: true,
+        recommendations: true,
+        revisions: true,
+      },
     },
-    update: {},
-    create: {
-      clerkId: user.id,
-      email,
-      name: user.fullName ?? email,
-    },
-  });
+  },
+});
 }

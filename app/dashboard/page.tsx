@@ -6,10 +6,16 @@ export default async function DashboardPage() {
   return (
     <main style={{ padding: "2rem" }}>
       <h1>Handsy FIT Dashboard</h1>
-      <p>Artist ID: {artist.id}</p>
-      <p>Artist Name: {artist.name}</p>
-      <p>Artist Email: {artist.email}</p>
-      <p>Clerk ID: {artist.clerkId}</p>
+
+      <p>Welcome, {artist.name}</p>
+
+      <section>
+        <h2>Overview</h2>
+        <p>Clients: {artist._count.clients}</p>
+        <p>Capture Sessions: {artist._count.captureSessions}</p>
+        <p>Recommendations: {artist._count.recommendations}</p>
+        <p>Revisions: {artist._count.revisions}</p>
+      </section>
     </main>
   );
 }
