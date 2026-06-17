@@ -100,10 +100,10 @@ enum RevisionDirection {
 
 model Artist {
   id                     String                 @id @default(cuid())
+  clerkId                String                 @unique
   name                   String
-  handle                 String                 @unique
+  handle                 String?                @unique
   email                  String                 @unique
-  passwordHash           String
   subscriptionStatus     SubscriptionStatus     @default(TRIAL)
   notificationPreference NotificationPreference @default(EMAIL)
   createdAt              DateTime               @default(now())
