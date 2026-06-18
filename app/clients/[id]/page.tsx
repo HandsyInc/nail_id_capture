@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+
 import { getOrCreateArtist } from "@/lib/artist";
 import { prisma } from "@/lib/prisma";
+import { startCaptureSession } from "./actions";
 
-export default async function ClientDetailPage({
+export default async function ClientPage({
   params,
 }: {
   params: { id: string };
@@ -14,6 +16,13 @@ export default async function ClientDetailPage({
     where: {
       id: params.id,
       artistId: artist.id,
+    },
+    include: {
+      captureSessions: {
+        orderBy: {
+          createdAt: "desc",
+        },
+      },
     },
   });
 
@@ -32,6 +41,17 @@ export default async function ClientDetailPage({
       <p>Email: {client.email}</p>
       <p>Status: {client.status}</p>
 
+      <form
+        action={async () => {
+          "use server";
+          await startCaptureSession(client.id);
+        }}
+      >
+        <button type="submit">
+          Start Capture Session
+        </button>
+      </form>
+
       <section style={{ marginTop: "2rem" }}>
         <h2>Notes</h2>
         <p>{client.notes ?? "No notes yet."}</p>
@@ -39,7 +59,19 @@ export default async function ClientDetailPage({
 
       <section style={{ marginTop: "2rem" }}>
         <h2>Capture Sessions</h2>
-        <p>No capture sessions yet.</p>
+
+        {client.captureSessions.length === 0 ? (
+          <p>No capture sessions yet.</p>
+        ) : (
+          <ul>
+            {client.captureSessions.map((session) => (
+              <li key={session.id}>
+                {session.status} —{" "}
+                {session.createdAt.toLocaleDateString()}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section style={{ marginTop: "2rem" }}>
