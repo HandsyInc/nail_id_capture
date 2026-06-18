@@ -47,9 +47,7 @@ export default async function ClientPage({
           await startCaptureSession(client.id);
         }}
       >
-        <button type="submit">
-          Start Capture Session
-        </button>
+        <button type="submit">Start Capture Session</button>
       </form>
 
       <section style={{ marginTop: "2rem" }}>
@@ -65,9 +63,27 @@ export default async function ClientPage({
         ) : (
           <ul>
             {client.captureSessions.map((session) => (
-              <li key={session.id}>
-                {session.status} —{" "}
-                {session.createdAt.toLocaleDateString()}
+              <li key={session.id} style={{ marginBottom: "1rem" }}>
+                <p>
+                  {session.status} — {session.createdAt.toLocaleDateString()}
+                </p>
+
+                {session.captureLinkToken ? (
+                  <>
+                    <p>
+                      Capture Link:{" "}
+                      <code>/capture/{session.captureLinkToken}</code>
+                    </p>
+                    <p>
+                      Expires:{" "}
+                      {session.captureLinkExpiresAt
+                        ? session.captureLinkExpiresAt.toLocaleDateString()
+                        : "No expiration"}
+                    </p>
+                  </>
+                ) : (
+                  <p>No capture link generated.</p>
+                )}
               </li>
             ))}
           </ul>

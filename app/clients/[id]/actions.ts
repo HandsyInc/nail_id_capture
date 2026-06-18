@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 
 import { getOrCreateArtist } from "@/lib/artist";
@@ -19,10 +20,16 @@ export async function startCaptureSession(clientId: string) {
     throw new Error("Client not found");
   }
 
+  const token = randomUUID();
+
   await prisma.captureSession.create({
     data: {
       clientId: client.id,
       artistId: artist.id,
+      captureLinkToken: token,
+      captureLinkExpiresAt: new Date(
+        Date.now() + 1000 * 60 * 60 * 24 * 30
+      ),
     },
   });
 
