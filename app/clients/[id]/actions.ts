@@ -19,8 +19,20 @@ export async function startCaptureSession(clientId: string) {
   if (!client) {
     throw new Error("Client not found");
   }
+  const existingPendingSession = await prisma.captureSession.findFirst({
+  where: {
+    clientId: client.id,
+    artistId: artist.id,
+    type: "INITIAL",
+    status: "PENDING",
+  },
+});
 
-  const token = randomUUID();
+if (existingPendingSession) {
+  redirect(`/clients/${client.id}`);
+}
+console.log("START CAPTURE SESSION", client.id);
+  const token = `cap_${randomUUID()}`;
 
   await prisma.captureSession.create({
     data: {

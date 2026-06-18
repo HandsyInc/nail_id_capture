@@ -8,12 +8,19 @@ import { useState } from 'react';
 export default function CaptureV2Page({
   searchParams,
 }: {
-  searchParams: { session?: string };
+  searchParams: { token?: string };
 }) {
-  const sessionToken = searchParams?.session ?? null;
+  const sessionToken = searchParams?.token ?? null;
 
   // MOCK: replace with your actual capture fetch logic
-  const [captures] = useState<any[]>([]);
+  const [captures] = useState<any[]>([
+  {
+    preview: null,
+    spec: {
+      shotType: "test",
+    },
+  },
+]);
 
   const [step, setStep] = useState<'capture' | 'complete'>('complete');
 

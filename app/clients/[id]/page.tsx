@@ -19,10 +19,11 @@ export default async function ClientPage({
     },
     include: {
       captureSessions: {
-        orderBy: {
-          createdAt: "desc",
-        },
-      },
+  orderBy: {
+    createdAt: "desc",
+  },
+  
+},
     },
   });
 
@@ -41,21 +42,14 @@ export default async function ClientPage({
       <p>Email: {client.email}</p>
       <p>Status: {client.status}</p>
 
-      <form
-        action={async () => {
-          "use server";
-          await startCaptureSession(client.id);
-        }}
-      >
+      <form action={startCaptureSession.bind(null, client.id)}>
         <button type="submit">Start Capture Session</button>
       </form>
 
       <section style={{ marginTop: "2rem" }}>
   <h2>Capture Sessions</h2>
 
-  {client.captureSessions.filter(
-  (session: any) => session.type === "INITIAL" && session.status === "SUBMITTED"
-).length === 0 ? (
+  {client.captureSessions.length === 0 ? (
     <p>No capture sessions yet.</p>
   ) : (
     <ul>
@@ -103,7 +97,9 @@ export default async function ClientPage({
   <section style={{ marginTop: "2rem" }}>
   <h2>Request Recapture</h2>
 
-  {client.captureSessions.filter((session: any) => session.type === "INITIAL" && session.status === "SUBMITTED").length === 0 ? (
+  {client.captureSessions.filter(
+  (session: any) => session.type === "INITIAL" && session.status === "SUBMITTED"
+).length === 0 ? (
     <p>No parent capture session available yet.</p>
   ) : (
     <form
