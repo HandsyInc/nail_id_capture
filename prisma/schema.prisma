@@ -238,9 +238,9 @@ model Recommendation {
   id                String               @id @default(cuid())
   artistId          String
   clientId          String
-  handsyFitId       String
+  handsyFitId       String?
   productId         String
-  geometryPackageId String
+  geometryPackageId String?
   status            RecommendationStatus @default(RECOMMENDED)
   sizesLeft         Json
   sizesRight        Json
@@ -250,9 +250,9 @@ model Recommendation {
 
   artist          Artist          @relation(fields: [artistId], references: [id])
   client          Client          @relation(fields: [clientId], references: [id])
-  handsyFit       HandsyFit       @relation(fields: [handsyFitId], references: [id])
+  handsyFit       HandsyFit?       @relation(fields: [handsyFitId], references: [id])
   product         Product         @relation(fields: [productId], references: [id])
-  geometryPackage GeometryPackage @relation(fields: [geometryPackageId], references: [id])
+  geometryPackage GeometryPackage? @relation(fields: [geometryPackageId], references: [id])
   fitNotes        FitNote[]
   revisions       Revision[]
 
