@@ -177,8 +177,8 @@ model CaptureSession {
   handsyFitId          String?
   type                 CaptureSessionType   @default(INITIAL)
   status               CaptureSessionStatus @default(PENDING)
-  captureLinkToken     String?              @unique
-  captureLinkExpiresAt DateTime?
+  captureLinkToken     String              @unique
+  captureLinkExpiresAt DateTime
   submittedAt          DateTime?
   processedAt          DateTime?
   retakeReason         RecaptureReason?
