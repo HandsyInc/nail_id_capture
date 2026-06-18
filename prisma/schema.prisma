@@ -64,10 +64,8 @@ enum Finger {
 }
 
 enum RecaptureReason {
-  BLURRY
-  MISSING_ANGLE
-  FINGER_BLOCKED
-  LIGHTING_ISSUE
+  PHOTO_ISSUE
+  MEASUREMENT_CONFIRMATION
   OTHER
 }
 
@@ -181,8 +179,10 @@ model CaptureSession {
   captureLinkExpiresAt DateTime
   submittedAt          DateTime?
   processedAt          DateTime?
-  retakeReason         RecaptureReason?
-  retakeFingers        Json?
+  recaptureReason   RecaptureReason?
+  recaptureNote     String?
+  recaptureTargets  Json?
+  parentCaptureSessionId String?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
@@ -191,6 +191,9 @@ model CaptureSession {
   handsyFit        HandsyFit?        @relation(fields: [handsyFitId], references: [id])
   images           CaptureImage[]
   geometryPackages GeometryPackage[]
+
+  parentCaptureSession  CaptureSession?   @relation("CaptureSessionRecaptures", fields: [parentCaptureSessionId], references: [id])
+  recaptureSessions     CaptureSession[]   @relation("CaptureSessionRecaptures")
 
   @@index([clientId])
   @@index([artistId])
