@@ -108,3 +108,49 @@ export async function startRecaptureSession({
 
   redirect(`/clients/${client.id}`);
 }
+export async function createRecommendation(clientId: string, formData: FormData) {
+  const artist = await getOrCreateArtist();
+
+  const client = await prisma.client.findFirst({
+    where: {
+      id: clientId,
+      artistId: artist.id,
+    },
+  });
+
+  if (!client) {
+    throw new Error("Client not found");
+  }
+
+  const productId = String(formData.get("productId"));
+
+  await prisma.recommendation.create({
+    data: {
+      artist: {
+  connect: { id: artist.id },
+},
+client: {
+  connect: { id: client.id },
+},
+product: {
+  connect: { id: productId },
+},
+      sizesLeft: {
+        thumb: String(formData.get("leftThumb") || ""),
+        index: String(formData.get("leftIndex") || ""),
+        middle: String(formData.get("leftMiddle") || ""),
+        ring: String(formData.get("leftRing") || ""),
+        pinky: String(formData.get("leftPinky") || ""),
+      },
+      sizesRight: {
+        thumb: String(formData.get("rightThumb") || ""),
+        index: String(formData.get("rightIndex") || ""),
+        middle: String(formData.get("rightMiddle") || ""),
+        ring: String(formData.get("rightRing") || ""),
+        pinky: String(formData.get("rightPinky") || ""),
+      },
+    },
+  });
+
+  redirect(`/clients/${client.id}`);
+}
