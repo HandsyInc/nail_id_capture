@@ -54,12 +54,12 @@ export default async function ClientPage({
   <h2>Capture Sessions</h2>
 
   {client.captureSessions.filter(
-  (session) => session.type === "INITIAL" && session.status === "SUBMITTED"
+  (session: any) => session.type === "INITIAL" && session.status === "SUBMITTED"
 ).length === 0 ? (
     <p>No capture sessions yet.</p>
   ) : (
     <ul>
-      {client.captureSessions.map((session) => (
+      {client.captureSessions.map((session: any) => (
   <li key={session.id} style={{ marginBottom: "1rem" }}>
     <p>
       {session.status} — {session.createdAt.toLocaleDateString()}
