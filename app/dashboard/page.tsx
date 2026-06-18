@@ -14,6 +14,20 @@ export default async function DashboardPage() {
     },
   });
 
+  const pendingReviews = await prisma.captureSession.findMany({
+  where: {
+    artistId: artist.id,
+    status: "SUBMITTED",
+    type: "INITIAL",
+  },
+  include: {
+    client: true,
+  },
+  orderBy: {
+    updatedAt: "desc",
+  },
+});
+
   return (
     <main style={{ padding: "2rem" }}>
       <h1>Handsy FIT Dashboard</h1>
@@ -27,7 +41,23 @@ export default async function DashboardPage() {
         <p>Recommendations: {artist._count.recommendations}</p>
         <p>Revisions: {artist._count.revisions}</p>
       </section>
+<section style={{ marginTop: "2rem" }}>
+  <h2>Needs Review</h2>
 
+  {pendingReviews.length === 0 ? (
+    <p>No submitted captures awaiting review.</p>
+  ) : (
+    <ul>
+      {pendingReviews.map((session: any) => (
+        <li key={session.id}>
+          <Link href={`/clients/${session.clientId}`}>
+            {session.client.name}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )}
+</section>
       <section style={{ marginTop: "2rem" }}>
         <h2>Clients</h2>
 
