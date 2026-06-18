@@ -39,7 +39,7 @@ export default async function DashboardPage() {
           <p>No clients yet.</p>
         ) : (
           <ul>
-            {clients.map((client) => (
+            {clients.map((client: any) => (
               <li key={client.id}>
                 <Link href={`/clients/${client.id}`}>{client.name}</Link>{" "}
                 — {client.email}
