@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import JSZip from 'jszip';
 import LiveCaptureView, {
@@ -292,6 +293,9 @@ export default function CaptureV2Page() {
   // Accumulates every accepted capture so the completion panel can show a
   // full-session thumbnail grid for label/preview verification.
   const [sessionCaptures, setSessionCaptures] = useState<SessionCapture[]>([]);
+  
+  const searchParams = useSearchParams();
+  const sessionToken = searchParams.get('session');
 
   const totalSteps = CAPTURE_SEQUENCE.length; // 14
   const shotSpec =
@@ -354,12 +358,13 @@ export default function CaptureV2Page() {
         {currentStep >= totalSteps ? (
           <CompletionPanel
             captures={sessionCaptures}
+            sessionToken={sessionToken}
             onRestart={() => {
-              setCaptured(null);
-              setCurrentStep(0);
-              setSessionCaptures([]);
-            }}
-          />
+             setCaptured(null);
+             setCurrentStep(0);
+             setSessionCaptures([]);
+           }}
+           />
         ) : (
           <>
             <StepBanner
@@ -717,9 +722,11 @@ function Chip({
  */
 function CompletionPanel({
   captures,
+  sessionToken,
   onRestart,
 }: {
   captures: SessionCapture[];
+  sessionToken: string | null;
   onRestart: () => void;
 }) {
   const [isDownloading, setIsDownloading] = useState(false);
@@ -733,7 +740,18 @@ function CompletionPanel({
     setIsDownloading(true);
     setDownloadError(null);
     try {
+      
       await downloadSession(captures);
+
+      if (sessionToken) {
+  const response = await fetch(`/api/capture/${sessionToken}/submit`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    throw new Error('Capture ZIP downloaded, but submission status could not be updated.');
+  }
+}
     } catch (err: any) {
       setDownloadError(err?.message ?? 'Download failed — check the browser console.');
     } finally {
