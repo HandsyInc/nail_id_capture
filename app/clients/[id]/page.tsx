@@ -51,44 +51,47 @@ export default async function ClientPage({
       </form>
 
       <section style={{ marginTop: "2rem" }}>
-        <h2>Notes</h2>
-        <p>{client.notes ?? "No notes yet."}</p>
-      </section>
+  <h2>Capture Sessions</h2>
 
-      <section style={{ marginTop: "2rem" }}>
-        <h2>Capture Sessions</h2>
+  {client.captureSessions.length === 0 ? (
+    <p>No capture sessions yet.</p>
+  ) : (
+    <ul>
+      {client.captureSessions.map((session) => (
+        <li key={session.id} style={{ marginBottom: "1rem" }}>
+          <p>
+            {session.status} — {session.createdAt.toLocaleDateString()}
+          </p>
 
-        {client.captureSessions.length === 0 ? (
-          <p>No capture sessions yet.</p>
-        ) : (
-          <ul>
-            {client.captureSessions.map((session) => (
-              <li key={session.id} style={{ marginBottom: "1rem" }}>
-                <p>
-                  {session.status} — {session.createdAt.toLocaleDateString()}
-                </p>
+          {session.captureLinkToken ? (
+            <>
+              <p>
+  Capture Link:{" "}
+  <a
+    href={`/capture/${session.captureLinkToken}`}
+    target="_blank"
+    rel="noreferrer"
+    style={{ color: "#60a5fa", textDecoration: "underline" }}
+  >
+    Open Capture
+  </a>
+</p>
 
-                {session.captureLinkToken ? (
-                  <>
-                    <p>
-                      Capture Link:{" "}
-                      <code>/capture/{session.captureLinkToken}</code>
-                    </p>
-                    <p>
-                      Expires:{" "}
-                      {session.captureLinkExpiresAt
-                        ? session.captureLinkExpiresAt.toLocaleDateString()
-                        : "No expiration"}
-                    </p>
-                  </>
-                ) : (
-                  <p>No capture link generated.</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              <p>
+                Expires:{" "}
+                {session.captureLinkExpiresAt
+                  ? session.captureLinkExpiresAt.toLocaleDateString()
+                  : "No expiration"}
+              </p>
+            </>
+          ) : (
+            <p>No capture link generated.</p>
+          )}
+        </li>
+      ))}
+    </ul>
+  )}
+</section>
 
       <section style={{ marginTop: "2rem" }}>
         <h2>Recommendations</h2>
