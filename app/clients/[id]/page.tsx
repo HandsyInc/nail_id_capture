@@ -137,7 +137,7 @@ export default async function ClientPage({
       <input
         type="hidden"
         name="parentCaptureSessionId"
-        value={client.captureSessions.find((session) => session.type === "INITIAL" && session.status === "SUBMITTED")?.id}
+        value={client.captureSessions.find((session: any) => session.type === "INITIAL" && session.status === "SUBMITTED")?.id}
       />
 
       <p>
