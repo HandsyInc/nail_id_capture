@@ -3,7 +3,13 @@ import { notFound } from "next/navigation";
 
 import { getOrCreateArtist } from "@/lib/artist";
 import { prisma } from "@/lib/prisma";
-import { startCaptureSession, startRecaptureSession } from "./actions";
+
+import { RecommendationForm } from "./RecommendationForm";
+import {
+  createRecommendation,
+  startCaptureSession,
+  startRecaptureSession,
+} from "./actions";
 
 export default async function ClientPage({
   params,
@@ -18,19 +24,36 @@ export default async function ClientPage({
       artistId: artist.id,
     },
     include: {
-      captureSessions: {
-  orderBy: {
-    createdAt: "desc",
-  },
-  
-},
+  captureSessions: {
+    orderBy: {
+      createdAt: "desc",
     },
+  },
+
+  recommendations: {
+    include: {
+      product: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  },
+},
   });
 
   if (!client) {
     notFound();
   }
-
+const products = await prisma.product.findMany({
+  where: {
+    isActive: true,
+  },
+  orderBy: [
+    { brand: "asc" },
+    { productLine: "asc" },
+    { shape: "asc" },
+  ],
+});
   return (
     <main style={{ padding: "2rem" }}>
       <p>
@@ -212,9 +235,58 @@ export default async function ClientPage({
 </section>
 
       <section style={{ marginTop: "2rem" }}>
-        <h2>Recommendations</h2>
-        <p>No recommendations yet.</p>
-      </section>
+  <h2>Recommendations</h2>
+
+  {client.recommendations.length === 0 ? (
+    <p>No recommendations yet.</p>
+  ) : (
+    <ul>
+      {client.recommendations.map((recommendation: any) => (
+  <li
+    key={recommendation.id}
+    style={{
+      marginBottom: "1rem",
+      padding: "1rem",
+      border: "1px solid #ddd",
+      borderRadius: "8px",
+    }}
+  >
+    <h3>{recommendation.product.displayName}</h3>
+
+    <p>Status: {recommendation.status}</p>
+    <p>Created: {recommendation.createdAt.toLocaleDateString()}</p>
+
+    <h4>Left Hand</h4>
+    <p>
+      Thumb: {recommendation.sizesLeft?.thumb || "-"} | Index:{" "}
+      {recommendation.sizesLeft?.index || "-"} | Middle:{" "}
+      {recommendation.sizesLeft?.middle || "-"} | Ring:{" "}
+      {recommendation.sizesLeft?.ring || "-"} | Pinky:{" "}
+      {recommendation.sizesLeft?.pinky || "-"}
+    </p>
+
+    <h4>Right Hand</h4>
+    <p>
+      Thumb: {recommendation.sizesRight?.thumb || "-"} | Index:{" "}
+      {recommendation.sizesRight?.index || "-"} | Middle:{" "}
+      {recommendation.sizesRight?.middle || "-"} | Ring:{" "}
+      {recommendation.sizesRight?.ring || "-"} | Pinky:{" "}
+      {recommendation.sizesRight?.pinky || "-"}
+    </p>
+  </li>
+))}
+    </ul>
+  )}
+</section>
+
+  <section style={{ marginTop: "2rem" }}>
+  <h2>Create Recommendation</h2>
+
+  <RecommendationForm
+    products={products}
+    action={createRecommendation.bind(null, client.id)}
+  />
+</section>
     </main>
   );
 }
