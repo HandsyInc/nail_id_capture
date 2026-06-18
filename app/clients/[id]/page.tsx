@@ -58,37 +58,44 @@ export default async function ClientPage({
   ) : (
     <ul>
       {client.captureSessions.map((session) => (
-        <li key={session.id} style={{ marginBottom: "1rem" }}>
-          <p>
-            {session.status} — {session.createdAt.toLocaleDateString()}
-          </p>
+  <li key={session.id} style={{ marginBottom: "1rem" }}>
+    <p>
+      {session.status} — {session.createdAt.toLocaleDateString()}
+    </p>
 
-          {session.captureLinkToken ? (
-            <>
-              <p>
-  Capture Link:{" "}
-  <a
-    href={`/capture/${session.captureLinkToken}`}
-    target="_blank"
-    rel="noreferrer"
-    style={{ color: "#60a5fa", textDecoration: "underline" }}
-  >
-    Open Capture
-  </a>
-</p>
+    {session.captureLinkToken ? (
+      <div>
+        <a
+          href={`/capture/${session.captureLinkToken}`}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: "inline-block",
+            marginTop: "0.5rem",
+            padding: "6px 10px",
+            background: "#0f172a",
+            color: "white",
+            borderRadius: "6px",
+            textDecoration: "none",
+          }}
+        >
+          Open Capture
+        </a>
 
-              <p>
-                Expires:{" "}
-                {session.captureLinkExpiresAt
-                  ? session.captureLinkExpiresAt.toLocaleDateString()
-                  : "No expiration"}
-              </p>
-            </>
-          ) : (
-            <p>No capture link generated.</p>
-          )}
-        </li>
-      ))}
+        <p style={{ marginTop: "0.5rem" }}>
+          Expires:{" "}
+          {session.captureLinkExpiresAt
+            ? session.captureLinkExpiresAt.toLocaleDateString()
+            : "No expiration"}
+        </p>
+      </div>
+    ) : (
+      <p style={{ color: "#999" }}>
+        No capture link generated.
+      </p>
+    )}
+  </li>
+))}
     </ul>
   )}
 </section>
