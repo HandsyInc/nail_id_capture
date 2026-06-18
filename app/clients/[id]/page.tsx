@@ -103,7 +103,7 @@ export default async function ClientPage({
   <section style={{ marginTop: "2rem" }}>
   <h2>Request Recapture</h2>
 
-  {client.captureSessions.filter((session) => session.type === "INITIAL" && session.status === "SUBMITTED").length === 0 ? (
+  {client.captureSessions.filter((session: any) => session.type === "INITIAL" && session.status === "SUBMITTED").length === 0 ? (
     <p>No parent capture session available yet.</p>
   ) : (
     <form
