@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { getOrCreateArtist } from "@/lib/artist";
 import { prisma } from "@/lib/prisma";
-import { startCaptureSession } from "./actions";
+import { startCaptureSession, startRecaptureSession } from "./actions";
 
 export default async function ClientPage({
   params,
@@ -53,7 +53,9 @@ export default async function ClientPage({
       <section style={{ marginTop: "2rem" }}>
   <h2>Capture Sessions</h2>
 
-  {client.captureSessions.length === 0 ? (
+  {client.captureSessions.filter(
+  (session) => session.type === "INITIAL" && session.status === "SUBMITTED"
+).length === 0 ? (
     <p>No capture sessions yet.</p>
   ) : (
     <ul>
@@ -66,7 +68,7 @@ export default async function ClientPage({
     {session.captureLinkToken ? (
       <div>
         <a
-          href={`/capture/${session.captureLinkToken}`}
+          href={`/capture-v2?token=${session.captureLinkToken}`}
           target="_blank"
           rel="noreferrer"
           style={{
@@ -98,6 +100,119 @@ export default async function ClientPage({
 ))}
     </ul>
   )}
+  <section style={{ marginTop: "2rem" }}>
+  <h2>Request Recapture</h2>
+
+  {client.captureSessions.filter((session) => session.type === "INITIAL" && session.status === "SUBMITTED").length === 0 ? (
+    <p>No parent capture session available yet.</p>
+  ) : (
+    <form
+      action={async (formData) => {
+        "use server";
+
+        const parentCaptureSessionId = String(formData.get("parentCaptureSessionId"));
+        const hand = String(formData.get("hand"));
+        const finger = String(formData.get("finger"));
+        const recaptureReason = String(formData.get("recaptureReason")) as
+          | "PHOTO_ISSUE"
+          | "MEASUREMENT_CONFIRMATION"
+          | "OTHER";
+        const recaptureNote = String(formData.get("recaptureNote") || "");
+
+        await startRecaptureSession({
+          clientId: client.id,
+          parentCaptureSessionId,
+          recaptureReason,
+          recaptureNote,
+          recaptureTargets: [
+            {
+              hand: hand as "LEFT" | "RIGHT",
+              finger: finger as "THUMB" | "INDEX" | "MIDDLE" | "RING" | "PINKY",
+              views: ["TOP", "FRONT", "SIDE"],
+            },
+          ],
+        });
+      }}
+    >
+      <input
+        type="hidden"
+        name="parentCaptureSessionId"
+        value={client.captureSessions.find((session) => session.type === "INITIAL" && session.status === "SUBMITTED")?.id}
+      />
+
+      <p>
+        <label>
+          Hand{" "}
+          <select
+  name="hand"
+  required
+  style={{ color: "black" }}
+>
+            <option value="LEFT">Left Hand</option>
+            <option value="RIGHT">Right Hand</option>
+          </select>
+        </label>
+      </p>
+
+      <p>
+        <label>
+          Finger{" "}
+          <select
+  name="finger"
+  required
+  style={{ color: "black" }}
+>
+            <option value="THUMB">Thumb</option>
+            <option value="INDEX">Index</option>
+            <option value="MIDDLE">Middle</option>
+            <option value="RING">Ring</option>
+            <option value="PINKY">Pinky</option>
+          </select>
+        </label>
+      </p>
+
+      <p>
+        Required photos: Top View, Front View, Side View
+      </p>
+
+      <p>
+        <label>
+          Reason{" "}
+          <select
+  name="recaptureReason"
+  required
+  style={{ color: "black" }}
+>
+            <option value="PHOTO_ISSUE">Photo Issue</option>
+            <option value="MEASUREMENT_CONFIRMATION">
+              Measurement Confirmation
+            </option>
+            <option value="OTHER">Other</option>
+          </select>
+        </label>
+      </p>
+
+      <p>
+        <label>
+          Note{" "}
+          <textarea
+  name="recaptureNote"
+  placeholder="Optional note"
+  rows={3}
+  style={{
+    display: "block",
+    width: "100%",
+    maxWidth: "420px",
+    color: "black",
+  }}
+/>
+        </label>
+      </p>
+
+      <button type="submit">Generate Recapture Link</button>
+    </form>
+  )}
+</section>
 </section>
 
       <section style={{ marginTop: "2rem" }}>
