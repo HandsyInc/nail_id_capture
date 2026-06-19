@@ -154,10 +154,11 @@ type Props = {
    * happens next (preview, upload, advance to next finger, etc.).
    */
   onPhotoTaken: (
-    file: File,
-    preview: string,
-    diagnostics: CaptureDiagnostics
-  ) => void;
+  file: File,
+  preview: string,
+  diagnostics: CaptureDiagnostics,
+  spec: ShotSpec | null
+) => void;
   /**
    * The current shot specification — which hand, finger, and capture geometry
    * this view is being used for. Drives guidance function selection (curl vs
@@ -580,7 +581,7 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec = null }: Props
         shotSpec: shotSpec ?? null,
       };
 
-      onPhotoTaken(normalized.file, preview, diagnostics);
+      onPhotoTaken(normalized.file, preview, diagnostics, shotSpec); 
 
       // Release the camera once the parent has the result. The parent decides
       // whether to mount LiveCaptureView again (e.g., on "retake") which will

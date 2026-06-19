@@ -25,10 +25,13 @@ export default async function ClientPage({
     },
     include: {
   captureSessions: {
-    orderBy: {
-      createdAt: "desc",
-    },
+  orderBy: {
+    createdAt: "desc",
   },
+  include: {
+    images: true,
+  },
+},
 
   recommendations: {
     include: {
@@ -85,21 +88,41 @@ const products = await prisma.product.findMany({
     {session.captureLinkToken ? (
       <div>
         <a
-          href={`/capture-v2?token=${session.captureLinkToken}`}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            display: "inline-block",
-            marginTop: "0.5rem",
-            padding: "6px 10px",
-            background: "#0f172a",
-            color: "white",
-            borderRadius: "6px",
-            textDecoration: "none",
-          }}
-        >
-          Open Capture
-        </a>
+  href={`/capture-v2?token=${session.captureLinkToken}`}
+  target="_blank"
+  rel="noreferrer"
+  style={{
+    display: "inline-block",
+    marginTop: "0.5rem",
+    padding: "6px 10px",
+    background: "#0f172a",
+    color: "white",
+    borderRadius: "6px",
+    textDecoration: "none",
+  }}
+>
+  Open Capture Link
+</a>
+
+<Link
+  href={`/dashboard/captures/${session.id}`}
+  style={{
+    display: "inline-block",
+    marginTop: "0.5rem",
+    marginLeft: "0.5rem",
+    padding: "6px 10px",
+    background: "#334155",
+    color: "white",
+    borderRadius: "6px",
+    textDecoration: "none",
+  }}
+>
+  View Submitted Capture
+</Link>
+
+<p style={{ marginTop: "0.5rem" }}>
+  Expires: ...
+</p>
 
         <p style={{ marginTop: "0.5rem" }}>
           Expires:{" "}

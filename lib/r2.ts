@@ -1,4 +1,8 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
 
 function getR2Config() {
   const accountId = process.env.R2_ACCOUNT_ID;
@@ -55,5 +59,27 @@ export async function uploadToR2({
   return {
     bucket: bucketName,
     key,
+  };
+}
+export async function getFromR2(key: string) {
+  const { bucketName } = getR2Config();
+  const r2 = getR2Client();
+
+  const result = await r2.send(
+    new GetObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    })
+  );
+
+  if (!result.Body) {
+    throw new Error("R2 object body missing");
+  }
+
+  const body = await result.Body.transformToByteArray();
+
+  return {
+    body,
+    contentType: result.ContentType || "application/octet-stream",
   };
 }

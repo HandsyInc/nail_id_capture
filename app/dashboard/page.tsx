@@ -6,13 +6,23 @@ export default async function DashboardPage() {
   const artist = await getOrCreateArtist();
 
   const clients = await prisma.client.findMany({
-    where: {
-      artistId: artist.id,
+  where: {
+    artistId: artist.id,
+  },
+  include: {
+    captureSessions: {
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        images: true,
+      },
     },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+  },
+  orderBy: {
+    createdAt: "desc",
+  },
+});
 
   const pendingReviews = await prisma.captureSession.findMany({
   where: {

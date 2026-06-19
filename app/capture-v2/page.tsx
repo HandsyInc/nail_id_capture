@@ -25,8 +25,10 @@ function handlePhotoTaken(file: File, preview: string, diagnostics: any) {
       preview,
       diagnostics,
       spec: {
-        shotType: 'test',
-      },
+  finger: "INDEX",
+  hand: "LEFT",
+  imageType: "TOP_DOWN",
+}
     },
   ]);
 
