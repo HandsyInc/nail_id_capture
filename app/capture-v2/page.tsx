@@ -95,49 +95,42 @@ async function downloadSession(captures: any[]) {
   window.URL.revokeObjectURL(url);
 }
   async function handleDownload() {
-    if (!captures || captures.length === 0) return;
+  if (!captures || captures.length === 0) return;
+  if (isDownloading || isSubmitted) return;
 
-    if (isDownloading || isSubmitted) return;
+  setIsDownloading(true);
+  setDownloadError(null);
 
-    setIsDownloading(true);
-    setDownloadError(null);
-
-    try {
-      // STEP 1: download ZIP locally
-      await downloadSession(captures);
-
-      // STEP 2: mark submitted
-      if (sessionToken) {
-        const response = await fetch(
-  `/api/capture/${sessionToken}/submit`,
-  {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      captures,
-    }),
-  }
-);
-
-        if (!response.ok) {
-          throw new Error(
-            'Capture ZIP downloaded, but submission status could not be updated.'
-          );
+  try {
+    // STEP 1: submit FIRST
+    if (sessionToken) {
+      const response = await fetch(
+        `/api/capture/${sessionToken}/submit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ captures }),
         }
-      }
-
-      // STEP 3: success
-      setIsSubmitted(true);
-    } catch (err: any) {
-      setDownloadError(
-        err?.message ?? 'Download failed - check browser console.'
       );
-    } finally {
-      setIsDownloading(false);
+
+      if (!response.ok) {
+        throw new Error('Submit failed');
+      }
     }
+
+    // STEP 2: download ZIP LAST
+    await downloadSession(captures);
+
+    // STEP 3: success
+    setIsSubmitted(true);
+  } catch (err: any) {
+    setDownloadError(err?.message ?? 'Download failed');
+  } finally {
+    setIsDownloading(false);
   }
+}
 
   return (
     <div>
