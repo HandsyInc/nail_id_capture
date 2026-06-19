@@ -6,11 +6,19 @@ export async function POST(
   { params }: { params: { token: string } }
 ) {
   try {
+    const body = await req.json();
+
+    console.log(
+      "capture submit payload",
+      JSON.stringify(body, null, 2)
+    );
+
     const session = await prisma.captureSession.findUnique({
       where: {
         captureLinkToken: params.token,
       },
     });
+
 
     if (!session) {
       return NextResponse.json(

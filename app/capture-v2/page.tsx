@@ -94,11 +94,17 @@ async function downloadSession(captures: any[]) {
       // STEP 2: mark submitted
       if (sessionToken) {
         const response = await fetch(
-          `/api/capture/${sessionToken}/submit`,
-          {
-            method: 'POST',
-          }
-        );
+  `/api/capture/${sessionToken}/submit`,
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      captures,
+    }),
+  }
+);
 
         if (!response.ok) {
           throw new Error(
