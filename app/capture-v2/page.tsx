@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import LiveCaptureView from '@/components/capture-v2/LiveCaptureView';
 
 // NOTE: keep your existing import if downloadSession lives elsewhere
 // import { downloadSession } from '@/lib/downloadSession';
@@ -13,20 +14,34 @@ export default function CaptureV2Page({
   const sessionToken = searchParams?.token ?? null;
 
   // MOCK: replace with your actual capture fetch logic
-  const [captures] = useState<any[]>([
-  {
-    preview: null,
-    spec: {
-      shotType: "test",
+  const [captures, setCaptures] = useState<any[]>([]);
+const [step, setStep] = useState<'capture' | 'complete'>('capture');
+
+function handlePhotoTaken(file: File, preview: string, diagnostics: any) {
+  setCaptures((current) => [
+    ...current,
+    {
+      file,
+      preview,
+      diagnostics,
+      spec: {
+        shotType: 'test',
+      },
     },
-  },
-]);
+  ]);
 
-  const [step, setStep] = useState<'capture' | 'complete'>('complete');
+  setStep('complete');
+}
 
-  return (
+    return (
     <main style={{ padding: '2rem' }}>
       <h1>Capture v2 testbed</h1>
+
+      {step === 'capture' && (
+        <LiveCaptureView
+          onPhotoTaken={handlePhotoTaken}
+        />
+      )}
 
       {step === 'complete' && (
         <CompletionPanel
