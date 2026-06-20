@@ -38,26 +38,29 @@ const SECTION_INTROS: Record<ShotType, SectionIntro> = {
     buttonLabel: 'Begin top-down shots',
   },
   'transverse': {
-    image: '/example.jpg',
-    imageAlt: 'Example end-on finger photo',
-    title: 'End-On Shots',
+    image: '/front_profile_example.jpg',
+    imageAlt: 'Example front profile nail photo',
+    title: 'Front Profile Shots',
     steps: [
-      'No reference card needed for this section',
-      'Curl each fingertip toward the camera, nail facing the lens',
-      'Hold your phone level with your fingertip',
-      'Keep your finger steady — the camera will guide you',
+      'No reference card is needed',
+      'Rotate your phone 180° so the camera is level with the table',
+      'Use your front-facing camera for these captures',
+      'Move close enough to clearly see the nail\'s natural curve',
+      'Keep the nail centered in frame',
+      'Avoid blurry images',
     ],
-    buttonLabel: 'Begin end-on shots',
+    buttonLabel: 'Begin front profile shots',
   },
   'longitudinal': {
-    image: '/example.jpg',
+    image: '/side_profile_example.jpg',
     imageAlt: 'Example side-profile finger photo',
     title: 'Side-Profile Shots',
     steps: [
-      'No reference card needed for this section',
-      'Hold each finger sideways, tip pointing toward the camera',
-      'Keep your fingernail facing to the side, not up',
-      'Hold your phone level with your fingertip',
+      'No reference card is needed',
+      'Rotate your phone 180° so the camera is close to table height',
+      'Hold your finger sideways so the full nail profile is visible',
+      'Keep the nail edge and fingertip in frame',
+      'Move close enough to see the curve clearly while keeping the image sharp',
     ],
     buttonLabel: 'Begin side-profile shots',
   },
@@ -194,97 +197,125 @@ function CompletionPanel({
   sessionToken: string | null;
   onRestart: () => void;
 }) {
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  async function downloadSession(captures: CaptureEntry[]) {
-    const JSZip = (await import('jszip')).default;
-    const zip = new JSZip();
-
-    captures.forEach((capture, index) => {
-      const base64 = capture.preview?.split(',')[1];
-      if (base64) {
-        zip.file(`capture-${String(index + 1).padStart(2, '0')}-${capture.spec.hand}-${capture.spec.finger}-${capture.spec.shotType}.jpg`, base64, { base64: true });
-      }
-    });
-
-    const blob = await zip.generateAsync({ type: 'blob' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `capture-session.zip`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  }
-
-  async function handleDownload() {
+  async function handleSubmit() {
     if (!captures || captures.length === 0) return;
-    if (isDownloading || isSubmitted) return;
+    if (isSubmitting || isSubmitted) return;
+    if (!sessionToken) {
+      setSubmitError('No session token — cannot submit.');
+      return;
+    }
 
-    setIsDownloading(true);
-    setDownloadError(null);
+    setIsSubmitting(true);
+    setSubmitError(null);
+    setUploadProgress(0);
 
     try {
-      if (sessionToken) {
-        const response = await fetch(`/api/capture/${sessionToken}/submit`, {
+      // Upload each capture individually to stay under Vercel's 4.5 MB body limit.
+      for (let i = 0; i < captures.length; i++) {
+        const capture = captures[i];
+
+        const res = await fetch(`/api/capture/${sessionToken}/image`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ captures }),
+          body: JSON.stringify({
+            index: i,
+            preview: capture.preview,
+            spec: {
+              shotType: capture.spec.shotType,
+              hand: capture.spec.hand,
+              finger: capture.spec.finger,
+            },
+          }),
         });
 
-        if (!response.ok) throw new Error('Submit failed');
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error ?? `Upload failed at shot ${i + 1}`);
+        }
+
+        setUploadProgress(i + 1);
       }
 
-      await downloadSession(captures);
+      // All images uploaded — mark session SUBMITTED.
+      const finalRes = await fetch(`/api/capture/${sessionToken}/submit`, {
+        method: 'POST',
+      });
+
+      if (!finalRes.ok) {
+        const body = await finalRes.json().catch(() => ({}));
+        throw new Error(body?.error ?? 'Submit finalization failed');
+      }
+
       setIsSubmitted(true);
     } catch (err: unknown) {
-      setDownloadError(err instanceof Error ? err.message : 'Download failed');
+      setSubmitError(err instanceof Error ? err.message : 'Submission failed');
     } finally {
-      setIsDownloading(false);
+      setIsSubmitting(false);
     }
   }
 
-  return (
-    <div>
-      <div style={{ marginBottom: '1rem' }}>
-        {!isSubmitted ? (
-          <>
-            <h2>Ready to submit</h2>
-            <p>{captures.length} of {CAPTURE_SEQUENCE.length} shots captured</p>
-          </>
-        ) : (
-          <>
-            <h2>Submitted ✓</h2>
-            <p>Your capture has been sent for processing.</p>
-          </>
-        )}
-      </div>
+  const total = CAPTURE_SEQUENCE.length;
 
-      {downloadError && (
-        <p style={{ color: 'red' }}>{downloadError}</p>
-      )}
-
-      <button
-        onClick={handleDownload}
-        disabled={isDownloading || isSubmitted}
-        style={{
-          padding: '10px 16px',
-          background: '#2563eb',
-          color: 'white',
-          borderRadius: '6px',
-          opacity: isDownloading || isSubmitted ? 0.5 : 1,
-          cursor: isDownloading || isSubmitted ? 'not-allowed' : 'pointer',
-        }}
-      >
-        {isDownloading ? 'Submitting…' : isSubmitted ? 'Submitted ✓' : `Submit ${captures.length} shots`}
-      </button>
-
-      {isSubmitted && (
-        <div style={{ marginTop: '1rem', display: 'flex', gap: '10px' }}>
-          <button onClick={onRestart}>Capture Again</button>
+  if (isSubmitted) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6 py-10 text-white">
+        <div className="w-full max-w-sm space-y-5 text-center">
+          <div className="text-5xl">✓</div>
+          <h2 className="text-2xl font-bold text-gray-100">All done!</h2>
+          <p className="text-gray-400">Your capture has been sent for processing.</p>
+          <button
+            onClick={onRestart}
+            className="w-full rounded-xl border border-gray-600 px-6 py-3 text-gray-300 text-sm"
+          >
+            Capture Again
+          </button>
         </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6 py-10 text-white">
+      <div className="w-full max-w-sm space-y-5">
+
+        <div className="text-center space-y-1">
+          <h2 className="text-xl font-bold text-gray-100">
+            {isSubmitting ? 'Uploading…' : 'Ready to submit'}
+          </h2>
+          <p className="text-gray-400 text-sm">
+            {isSubmitting
+              ? `${uploadProgress} of ${total} shots uploaded`
+              : `${captures.length} of ${total} shots captured`}
+          </p>
+        </div>
+
+        {isSubmitting && (
+          <div className="w-full bg-gray-800 rounded-full h-2">
+            <div
+              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${(uploadProgress / total) * 100}%` }}
+            />
+          </div>
+        )}
+
+        {submitError && (
+          <p className="text-red-400 text-sm text-center">{submitError}</p>
+        )}
+
+        <button
+          onClick={handleSubmit}
+          disabled={isSubmitting}
+          className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 px-6 py-3 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isSubmitting ? `Uploading ${uploadProgress}/${total}…` : `Submit ${captures.length} shots`}
+        </button>
+
+      </div>
     </div>
   );
 }

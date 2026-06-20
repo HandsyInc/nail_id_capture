@@ -1,31 +1,16 @@
 /**
- * shot-spec.ts
- * Shot specification — the 30-capture measurement protocol.
+ * lib/capture-v2/shot-spec.ts
  *
- * Architecture
- * ------------
- * Three capture geometries, each applied once per finger across both hands
- * (30 shots total):
+ * 28-shot per-finger capture protocol:
  *
- *   Top-down (10 shots)
- *     Camera points straight down at the nail plate. Extracts chord width W
- *     and nail length L. Reference card in frame provides scale.
+ *    0–9   top-down     all 5 fingers × 2 hands   — requires reference card
+ *   10–17  transverse   4 fingers × 2 hands        — no card (thumbs excluded)
+ *   18–27  longitudinal all 5 fingers × 2 hands   — no card
  *
- *   Transverse (10 shots)
- *     Camera points along the finger axis, end-on at the nail cross-section.
- *     Extracts sagitta h and, with W, the IC curve.
- *     Thumb transverse IC extraction is architecturally unresolved — shots are
- *     captured for future development. See icArchitecturePending.
- *
- *   Longitudinal (10 shots)
- *     Camera positioned at the nail's side profile. Extracts apex height,
- *     apex position (AP%), and h/L ratio.
- *
- * Sequence order
- * --------------
- * Top-down (left then right) → transverse (left then right) →
- * longitudinal (left then right). Grouping by geometry minimises
- * repositioning between shots.
+ * Layer 4 (fit intelligence) is paused.
+ * extractsIC / icArchitecturePending are reserved fields kept in-schema so
+ * adding Layer 4 later doesn't require a structural change to CaptureImage or
+ * the submission payload.
  */
 
 // ---------------------------------------------------------------------------
@@ -37,98 +22,134 @@ export type Hand = 'left' | 'right';
 export type Finger = 'thumb' | 'index' | 'middle' | 'ring' | 'pinky';
 
 export type ShotType =
-  | 'top-down'      // per-finger top-down; extracts W and L
-  | 'transverse'    // per-finger end-on cross-section; extracts IC
-  | 'longitudinal'; // per-finger side profile; extracts AP% and h/L
+  | 'top-down'       // per-finger top-down; extracts W and L; requires card
+  | 'transverse'     // per-finger end-on cross-section; extracts IC; no card
+  | 'longitudinal';  // per-finger side profile; extracts AP% and h/L; no card
 
 export type ShotSpec = {
   /** Discriminates the capture geometry and expected measurements. */
   shotType: ShotType;
   hand: Hand;
-  /** Every shot targets exactly one finger. */
+  /**
+   * The single finger this shot targets. Never null — every shot in the
+   * per-finger protocol has exactly one primary finger.
+   */
   finger: Finger;
-
+  /**
+   * Whether the reference card must be in frame for this shot.
+   *
+   * LiveCaptureView reads this to choose between two guidance modes:
+   *   true  → computeGuidance()     strict card-detection ruleset
+   *   false → computeCurlGuidance() relaxed no-card ruleset
+   *
+   * top-down:     true  (card provides scale reference)
+   * transverse:   false (end-on curl; card would obstruct)
+   * longitudinal: false (side profile; no scale reference needed at beta)
+   */
   requiresCard: boolean;
-
+  /**
+   * Layer 4 placeholder — which fingers' IC (inter-curvature) data this
+   * shot contributes to. Empty for top-down and longitudinal at beta;
+   * populated for transverse once fit-intelligence pipeline is active.
+   */
   extractsIC: readonly Finger[];
+  /**
+   * Layer 4 placeholder — true while the fit-intelligence pipeline is
+   * paused. Signals to any downstream consumer that extractsIC should not
+   * be acted on yet.
+   */
   icArchitecturePending: boolean;
+  /** Short label shown in progress UI, capture viewer, and section intros. */
   label: string;
+  /**
+   * Instruction shown to the user on the per-section intro screen.
+   */
   instruction: string;
 };
 
 // ---------------------------------------------------------------------------
-// Sequence generators
+// Internal constants
 // ---------------------------------------------------------------------------
 
-const FINGERS: readonly Finger[] = ['thumb', 'index', 'middle', 'ring', 'pinky'];
-const HANDS: readonly Hand[]     = ['left', 'right'];
+const ALL_FINGERS: readonly Finger[] = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** Thumbs excluded from transverse — nail geometry makes end-on alignment
+ *  unreliable and thumb IC is computed differently in Layer 4. */
+const TRANSVERSE_FINGERS: readonly Finger[] = ['index', 'middle', 'ring', 'pinky'];
+
+const HANDS: readonly Hand[] = ['left', 'right'];
+
+function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// ---------------------------------------------------------------------------
+// Shot generators
+// ---------------------------------------------------------------------------
 
 function topDownShots(): ShotSpec[] {
+  // Left hand first, then right. Within each hand: thumb → pinky.
   return HANDS.flatMap(hand =>
-    FINGERS.map(finger => ({
+    ALL_FINGERS.map(finger => ({
       shotType: 'top-down' as const,
       hand,
       finger,
       requiresCard: true,
-      extractsIC: [] as const,
-      icArchitecturePending: false,
-      label: `${cap(hand)} ${cap(finger)} — Top Down`,
-      instruction: `Place your ${hand} hand palm-up on a flat surface. Hold the camera directly above your ${finger} nail, pointing straight down. Keep the reference card in frame.`,
+      extractsIC: [] as readonly Finger[],
+      icArchitecturePending: true,
+      label: `Top-Down · ${cap(hand)} ${cap(finger)}`,
+      instruction:
+        'Palm facing up, hand flat on a white surface. ' +
+        'Place the reference card alongside your hand.',
     }))
   );
 }
 
 function transverseShots(): ShotSpec[] {
+  // Thumbs excluded. Left hand first, then right. Within each hand: index → pinky.
   return HANDS.flatMap(hand =>
-    FINGERS.map(finger => {
-      const isThumb = finger === 'thumb';
-      return {
-        shotType: 'transverse' as const,
-        hand,
-        finger,
-        requiresCard: false,
-        extractsIC: isThumb ? ([] as const) : ([finger] as const),
-        icArchitecturePending: isThumb,
-        label: `${cap(hand)} ${cap(finger)} — Transverse`,
-        instruction: isThumb
-          ? `Curl your ${hand} thumb so the nail faces the camera end-on. Capture the cross-section of the nail. IC extraction is pending for thumb transverse geometry.`
-          : `Curl your ${hand} ${finger} so the nail faces the camera end-on. Capture the full cross-section of the nail plate.`,
-      };
-    })
+    TRANSVERSE_FINGERS.map(finger => ({
+      shotType: 'transverse' as const,
+      hand,
+      finger,
+      requiresCard: false,
+      extractsIC: [finger] as readonly Finger[],
+      icArchitecturePending: true,
+      label: `Front Profile · ${cap(hand)} ${cap(finger)}`,
+      instruction:
+        'Rotate your phone 180° so the camera is level with the table. ' +
+        'Move close enough to clearly see the nail\'s natural curve. No reference card needed.',
+    }))
   );
 }
 
 function longitudinalShots(): ShotSpec[] {
+  // All 5 fingers. Left hand first, then right. Within each hand: thumb → pinky.
   return HANDS.flatMap(hand =>
-    FINGERS.map(finger => ({
+    ALL_FINGERS.map(finger => ({
       shotType: 'longitudinal' as const,
       hand,
       finger,
       requiresCard: false,
-      extractsIC: [] as const,
-      icArchitecturePending: false,
-      label: `${cap(hand)} ${cap(finger)} — Longitudinal`,
-      instruction: `Position the camera at the side of your ${hand} ${finger} nail. The full nail length from base to tip should be visible in the frame.`,
+      extractsIC: [] as readonly Finger[],
+      icArchitecturePending: true,
+      label: `Side-Profile · ${cap(hand)} ${cap(finger)}`,
+      instruction:
+        `Hold your ${finger} finger sideways, tip pointing toward the camera. ` +
+        'No reference card needed.',
     }))
   );
 }
 
 // ---------------------------------------------------------------------------
-// The 30-shot sequence
+// Exported sequence — do not reorder without updating CaptureImage rows
 // ---------------------------------------------------------------------------
 
-/**
- * Complete measurement sequence for one client session.
- * Order: left top-down (5) → right top-down (5) →
- *        left transverse (5) → right transverse (5) →
- *        left longitudinal (5) → right longitudinal (5).
- */
 export const CAPTURE_SEQUENCE: readonly ShotSpec[] = [
-  ...topDownShots(),
-  ...transverseShots(),
-  ...longitudinalShots(),
+  ...topDownShots(),       // shots  0–9   left thumb → right pinky
+  ...transverseShots(),    // shots 10–17  left index → right pinky (no thumbs)
+  ...longitudinalShots(),  // shots 18–27  left thumb → right pinky
 ];
 
-export const TOTAL_SHOTS = CAPTURE_SEQUENCE.length; // 30
+/** 28: 10 top-down + 8 transverse + 10 longitudinal */
+export const TOTAL_SHOTS = CAPTURE_SEQUENCE.length;

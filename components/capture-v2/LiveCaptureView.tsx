@@ -25,7 +25,7 @@ import {
 } from '@/lib/capture-v2/homography-focal';
 import {
   computeGuidance,
-  computeCurlGuidance,
+  computeFreeGuidance,
   GuidanceIssue,
   GuidanceState,
 } from '@/lib/capture-v2/capture-guidance';
@@ -206,13 +206,16 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
   const [streamSettings, setStreamSettings] =
     useState<MediaTrackSettings | null>(null);
 
-  // Guidance state for the live prompt. Initialized to the no-card state so
-  // the pill has something to say from the moment the camera comes online,
-  // even before the detector's first callback lands. Curl shots use the
-  // wider-band guidance function; planar shots use the standard one.
+
+  // Guidance state for the live prompt. Initialized here so the pill has
+  // something to say from the moment the camera comes online, even before
+  // the first CardOverlay callback lands.
+  // Routing by requiresCard:
+  //   true  (top-down)               → computeGuidance    card-detection gate
+  //   false (front/side profile)     → computeFreeGuidance always captureReady
   const [guidance, setGuidance] = useState<GuidanceState>(() =>
-    shotSpec && shotSpec.shotType !== 'top-down'
-      ? computeCurlGuidance(null)
+    shotSpec?.requiresCard === false
+      ? computeFreeGuidance()
       : computeGuidance(null)
   );
 
@@ -236,21 +239,35 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reset hysteresis whenever we leave the streaming state — when the user
-  // comes back, the prompt should start from "looking for the card" rather
-  // than whatever the last frame happened to say. Use the correct guidance
-  // initializer for the current shot geometry.
+  // Reset hysteresis whenever we leave the streaming state so the pill
+  // starts fresh on the next shot. Routing matches the initial-state logic:
+  // requiresCard=false shots reset to computeFreeGuidance (always ready);
+  // top-down resets to computeGuidance (waiting for card).
   useEffect(() => {
     if (status !== 'streaming') {
       committedIssueRef.current = undefined;
       pendingIssueRef.current = undefined;
       setGuidance(
-        shotSpec && shotSpec.shotType !== 'top-down'
-          ? computeCurlGuidance(null)
+        shotSpec?.requiresCard === false
+          ? computeFreeGuidance()
           : computeGuidance(null)
       );
     }
   }, [status, shotSpec]);
+
+  // Auto-start the camera whenever the component is idle — on initial mount
+  // (after the section intro "Begin" tap) and after each photo is taken
+  // (capturePhoto calls stopStream + setStatus('idle') before returning).
+  // This removes the per-shot confirmation card; the only deliberate pause
+  // in the flow is the section-intro screen in the parent.
+  useEffect(() => {
+    if (status === 'idle') {
+      startCamera();
+    }
+    // startCamera is a stable function reference defined in this closure;
+    // only status changes should re-trigger this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   /**
    * Detection callback: turn the latest Detection into guidance, with a
@@ -274,11 +291,12 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
     // Store raw detection before hysteresis so DebugPanel sees live values.
     setLiveDetection(detection);
 
-    // Route to the appropriate guidance function: curl shots use wider
-    // framePct bands and suppress tilt/off-paper checks.
-    const computeFn =
-      shotSpec && shotSpec.shotType !== 'top-down' ? computeCurlGuidance : computeGuidance;
-    const next = computeFn(detection);
+    // Route to the appropriate guidance function.
+    // CardOverlay is inactive for requiresCard=false shots so this callback
+    // will not fire for them — but the routing is correct defensively.
+    const next = shotSpec?.requiresCard === false
+      ? computeFreeGuidance()
+      : computeGuidance(detection);
     const committed = committedIssueRef.current;
 
     if (committed === undefined) {
@@ -324,10 +342,15 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
     // browser/device picks the closest feasible setting from the camera's
     // capability list — we read back what we actually got via getSettings()
     // and surface it in diagnostics.
+    // Facing mode is derived from shotSpec every time startCamera runs —
+    // no user-facing toggle, no persistent state.
+    const desiredFacingMode =
+      shotSpec?.shotType === 'transverse' ? 'user' : 'environment';
+
     const constraints: MediaStreamConstraints = {
       audio: false,
       video: {
-        facingMode: 'environment',
+        facingMode: desiredFacingMode,
         width: { ideal: 4096 },
         height: { ideal: 4096 },
       },
@@ -349,14 +372,33 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      // Guard: if the component unmounted while getUserMedia was in flight
+      // (e.g. the user navigated to a section-intro before the camera opened),
+      // release the stream and bail out rather than attaching it to a
+      // detached ref.
+      if (!videoRef.current) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
+
       streamRef.current = stream;
 
       const video = videoRef.current;
       if (video) {
         video.srcObject = stream;
-        // play() must be awaited; failing to await it on iOS Safari can
-        // produce a black frame because videoWidth is still 0 at capture time.
-        await video.play();
+        // play() must be awaited so videoWidth is non-zero before any capture.
+        // However, the <video autoPlay> attribute fires its own internal play()
+        // the moment srcObject is assigned, creating two concurrent play
+        // requests. On iOS Safari this raises an AbortError on the first
+        // request. We catch it here: if autoPlay already started the stream
+        // the video is playing normally and we can proceed to 'streaming'.
+        try {
+          await video.play();
+        } catch (playErr: any) {
+          if (playErr?.name !== 'AbortError') throw playErr;
+          // AbortError from the autoPlay race — video is playing; continue.
+        }
       }
 
       const track = stream.getVideoTracks()[0];
@@ -610,34 +652,12 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
     );
   }
 
+  // status === 'idle' is now transient: the auto-start effect above calls
+  // startCamera() immediately, so this state lasts at most one render frame.
+  // Render nothing to avoid a layout flash between shots.
   if (status === 'idle') {
-  const exampleSrc =
-    shotSpec?.shotType === 'top-down'
-      ? '/palm_up_example.jpg'
-      : '/example.jpg';
-
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-8 text-center text-white space-y-4">
-      <img
-        src={exampleSrc}
-        alt={`Example: ${shotSpec?.label ?? 'next shot'}`}
-        className="w-full max-w-xs mx-auto rounded-xl object-cover"
-      />
-      {shotSpec && (
-        <>
-          <p className="text-sm font-medium">{shotSpec.label}</p>
-          <p className="text-sm text-white/60">{shotSpec.instruction}</p>
-        </>
-      )}
-      <button
-        onClick={startCamera}
-        className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 px-6 py-3 text-white font-medium"
-      >
-        Start camera
-      </button>
-    </div>
-  );
-}
+    return null;
+  }
 
   // Streaming or capturing — render the video preview either way.
   //
@@ -676,14 +696,18 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
   //
   // The overlay is paused (`active={false}`) the moment we start
   // capturing so we don't waste cycles on detection while normalizing.
-  const isCurl = shotSpec != null && shotSpec.shotType !== 'top-down';
+  const shotType   = shotSpec?.shotType   ?? 'top-down';
+  const requiresCard = shotSpec?.requiresCard ?? true;
 
-  // Frame border and mode badge change per shot geometry:
-  //   Palm-up  — blue border, "Width · top-down" badge
-  //   Curl     — indigo border, "IC · end-on" badge
-  // This makes the architectural split visible so a user moving between
-  // steps can't accidentally apply curl framing to a palm-up step.
-  const frameBorderClass = isCurl ? 'border-indigo-500/60' : 'border-blue-500/40';
+  // Frame border and mode badge vary by geometry so the user can see at a
+  // glance which capture mode is active.
+  //   top-down     — blue border,   "Width · top-down"
+  //   transverse   — indigo border, "Front profile"
+  //   longitudinal — violet border, "Side profile"
+  const frameBorderClass =
+    shotType === 'top-down'   ? 'border-blue-500/40' :
+    shotType === 'transverse' ? 'border-indigo-500/60' :
+    /* longitudinal */          'border-violet-500/60';
 
   return (
     <div className="space-y-4">
@@ -697,15 +721,22 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
         />
         <CardOverlay
           videoRef={videoRef}
-          active={status === 'streaming'}
+          active={status === 'streaming' && requiresCard}
           onDetection={handleDetection}
         />
         {/* Mode badge — bottom-left corner, always visible while streaming.
-            Tells the user whether this step is a width (top-down) capture or
-            an IC (end-on curl) capture so there's no ambiguity about framing. */}
+            Shows which geometry is active so there's no ambiguity about framing.
+            CardOverlay is disabled (active=false) for non-card shots so the
+            detector does not run and no detection box is drawn. */}
         {status === 'streaming' && (
-          <div className={`absolute z-20 bottom-3 left-3 px-3 py-1 rounded-full text-xs font-semibold text-white pointer-events-none ${isCurl ? 'bg-indigo-600/90' : 'bg-blue-600/90'}`}>
-            {isCurl ? 'IC · end-on' : 'Width · top-down'}
+          <div className={`absolute z-20 bottom-3 left-3 px-3 py-1 rounded-full text-xs font-semibold text-white pointer-events-none ${
+            shotType === 'top-down'   ? 'bg-blue-600/90' :
+            shotType === 'transverse' ? 'bg-indigo-600/90' :
+            'bg-violet-600/90'
+          }`}>
+            {shotType === 'top-down'   ? 'Width · top-down' :
+             shotType === 'transverse' ? 'Front profile' :
+             'Side profile'}
           </div>
         )}
         {/* Live debug readout — bottom-right corner. Shows the raw detector
@@ -757,6 +788,7 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
               : 'Follow the guidance above to unlock capture'}
           </p>
         )}
+
       </div>
 
       {streamSettings && (
@@ -821,9 +853,12 @@ function DebugPanel({
   const m = detection?.metrics;
 
   // For palm-up shots these are the active threshold boundaries.
-  const isCurlMode = shotSpec != null && shotSpec.shotType !== 'top-down';
-  const loThr = isCurlMode ? 5 : 35;
-  const hiThr = isCurlMode ? 95 : 70;
+  // Debug thresholds only apply for top-down (card-based) shots.
+  // Front/side profile shots have no distance gate, so thresholds are shown
+  // as n/a but framePct is still displayed for informational calibration.
+  const isCardShot = shotSpec?.requiresCard ?? true;
+  const loThr = isCardShot ? 35 : 0;
+  const hiThr = isCardShot ? 70 : 100;
 
   return (
     <div className="absolute z-30 bottom-3 right-3 px-2 py-1.5 rounded bg-black/75 text-white text-[9px] font-mono leading-snug pointer-events-none max-w-[170px]">
@@ -863,7 +898,7 @@ function DebugPanel({
           shot={shotSpec?.shotType ?? 'n/a'}
         </div>
         <div className="text-white/50 text-[8px]">
-          {isCurlMode ? 'thr 5–95%' : 'thr 35–70%'}
+          {isCardShot ? 'thr 35–70%' : 'no thr'}
         </div>
       </div>
     </div>

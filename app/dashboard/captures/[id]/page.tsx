@@ -65,12 +65,17 @@ export default async function CaptureViewerPage({
                   }}
                 >
                   <img
-  src={`/api/captures/images/${image.id}`}
-  alt="Capture image"
-  loading="lazy"
+                    src={`/api/captures/images/${image.id}`}
+                    alt="Capture image"
+                    loading="lazy"
                     style={{
                       width: "100%",
                       borderRadius: "6px",
+                      transform:
+                        image.imageType === "TRANSVERSE" ||
+                        image.imageType === "LONGITUDINAL"
+                          ? "rotate(180deg)"
+                          : undefined,
                     }}
                   />
 

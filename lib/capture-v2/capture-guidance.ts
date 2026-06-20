@@ -401,3 +401,21 @@ export function computeCurlGuidance(detection: Detection | null): GuidanceState 
     captureReady: true,
   };
 }
+
+/**
+ * Guidance for shots that require no reference card.
+ * Applies to: transverse (front profile) and longitudinal (side profile).
+ *
+ * captureReady is unconditionally true — the user frames the nail to their
+ * satisfaction and taps Capture. There is no card-detection gate, no
+ * distance constraint, and no tilt check. CardOverlay must be inactive
+ * for these shots (active={false}) so the detector does not run.
+ */
+export function computeFreeGuidance(): GuidanceState {
+  return {
+    level: 'ok',
+    issue: null,
+    message: 'Position the nail in frame, then tap Capture',
+    captureReady: true,
+  };
+}
