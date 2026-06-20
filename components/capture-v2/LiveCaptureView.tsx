@@ -35,7 +35,6 @@ import {
   type MultiArcResult,
 } from '@/lib/capture-v2/nail-sagitta';
 import {
-  isCurlShot,
   type ShotSpec,
 } from '@/lib/capture-v2/shot-spec';
 
@@ -157,7 +156,7 @@ type Props = {
   file: File,
   preview: string,
   diagnostics: CaptureDiagnostics,
-  spec: ShotSpec | null
+  spec: ShotSpec 
 ) => void;
   /**
    * The current shot specification — which hand, finger, and capture geometry
@@ -165,7 +164,7 @@ type Props = {
    * planar) and gates sagitta extraction to curl shots only. Optional so
    * callers that have not yet wired the 14-shot sequencer continue to work.
    */
-  shotSpec?: ShotSpec | null;
+  shotSpec: ShotSpec;
 };
 
 /**
@@ -194,7 +193,7 @@ type Props = {
  * same shape of object whether the photo came from the v1 file picker or the
  * v2 live capture.
  */
-export default function LiveCaptureView({ onPhotoTaken, shotSpec = null }: Props) {
+export default function LiveCaptureView({ onPhotoTaken, shotSpec }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // requestedConstraints stays in a ref (not state) because we only need it
@@ -212,7 +211,7 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec = null }: Props
   // even before the detector's first callback lands. Curl shots use the
   // wider-band guidance function; planar shots use the standard one.
   const [guidance, setGuidance] = useState<GuidanceState>(() =>
-    shotSpec && isCurlShot(shotSpec)
+    shotSpec && shotSpec.shotType !== 'top-down'
       ? computeCurlGuidance(null)
       : computeGuidance(null)
   );
@@ -246,7 +245,7 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec = null }: Props
       committedIssueRef.current = undefined;
       pendingIssueRef.current = undefined;
       setGuidance(
-        shotSpec && isCurlShot(shotSpec)
+        shotSpec && shotSpec.shotType !== 'top-down'
           ? computeCurlGuidance(null)
           : computeGuidance(null)
       );
@@ -278,7 +277,7 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec = null }: Props
     // Route to the appropriate guidance function: curl shots use wider
     // framePct bands and suppress tilt/off-paper checks.
     const computeFn =
-      shotSpec && isCurlShot(shotSpec) ? computeCurlGuidance : computeGuidance;
+      shotSpec && shotSpec.shotType !== 'top-down' ? computeCurlGuidance : computeGuidance;
     const next = computeFn(detection);
     const committed = committedIssueRef.current;
 
@@ -480,7 +479,7 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec = null }: Props
       let nailSagitta: SagittaResult | null = null;
       let multiArcResult: MultiArcResult | null = null;
       const shouldExtractArc =
-        !shotSpec || shotSpec.shotType === 'curl-four-finger';
+        !shotSpec || shotSpec.shotType === 'transverse';
       if (shouldExtractArc) {
         try {
           const extracted = extractMultiArc(capturedImageData, cardHomography, 4);
@@ -612,22 +611,33 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec = null }: Props
   }
 
   if (status === 'idle') {
-    return (
-      <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-8 text-center text-white">
-        <p className="text-base mb-1">Ready to test live capture</p>
-        <p className="text-sm text-white/60 mb-6">
-          Tap below to request camera access. You&rsquo;ll see the live
-          preview, then a capture button.
-        </p>
-        <button
-          onClick={startCamera}
-          className="rounded-xl bg-blue-600 hover:bg-blue-500 px-6 py-3 text-white font-medium"
-        >
-          Start camera
-        </button>
-      </div>
-    );
-  }
+  const exampleSrc =
+    shotSpec?.shotType === 'top-down'
+      ? '/palm_up_example.jpg'
+      : '/example.jpg';
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-8 text-center text-white space-y-4">
+      <img
+        src={exampleSrc}
+        alt={`Example: ${shotSpec?.label ?? 'next shot'}`}
+        className="w-full max-w-xs mx-auto rounded-xl object-cover"
+      />
+      {shotSpec && (
+        <>
+          <p className="text-sm font-medium">{shotSpec.label}</p>
+          <p className="text-sm text-white/60">{shotSpec.instruction}</p>
+        </>
+      )}
+      <button
+        onClick={startCamera}
+        className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 px-6 py-3 text-white font-medium"
+      >
+        Start camera
+      </button>
+    </div>
+  );
+}
 
   // Streaming or capturing — render the video preview either way.
   //
@@ -666,7 +676,7 @@ export default function LiveCaptureView({ onPhotoTaken, shotSpec = null }: Props
   //
   // The overlay is paused (`active={false}`) the moment we start
   // capturing so we don't waste cycles on detection while normalizing.
-  const isCurl = shotSpec != null && isCurlShot(shotSpec);
+  const isCurl = shotSpec != null && shotSpec.shotType !== 'top-down';
 
   // Frame border and mode badge change per shot geometry:
   //   Palm-up  — blue border, "Width · top-down" badge
@@ -811,7 +821,7 @@ function DebugPanel({
   const m = detection?.metrics;
 
   // For palm-up shots these are the active threshold boundaries.
-  const isCurlMode = shotSpec != null && isCurlShot(shotSpec);
+  const isCurlMode = shotSpec != null && shotSpec.shotType !== 'top-down';
   const loThr = isCurlMode ? 5 : 35;
   const hiThr = isCurlMode ? 95 : 70;
 

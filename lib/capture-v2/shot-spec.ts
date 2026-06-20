@@ -1,44 +1,31 @@
 /**
- * Shot specification — the 14-capture measurement protocol.
+ * shot-spec.ts
+ * Shot specification — the 30-capture measurement protocol.
  *
  * Architecture
  * ------------
- * The full fitting measurement set requires two distinct capture geometries:
+ * Three capture geometries, each applied once per finger across both hands
+ * (30 shots total):
  *
- *   Palm-up (10 shots)
- *     One per finger, one hand at a time. Camera points straight down at the
- *     nail plate. Extracts chord width W and nail length. Reference card in
- *     frame provides the scale.
+ *   Top-down (10 shots)
+ *     Camera points straight down at the nail plate. Extracts chord width W
+ *     and nail length L. Reference card in frame provides scale.
  *
- *   Curl / end-on (4 shots)
- *     Camera points along the finger axis, looking at the nail's cross-section.
- *     Extracts sagitta h and, with W, the IC (infinite-radius arc) curve.
+ *   Transverse (10 shots)
+ *     Camera points along the finger axis, end-on at the nail cross-section.
+ *     Extracts sagitta h and, with W, the IC curve.
+ *     Thumb transverse IC extraction is architecturally unresolved — shots are
+ *     captured for future development. See icArchitecturePending.
  *
- *     curl-four-finger: index/middle/ring/pinky together in one shot.
- *       These four share a common flexion axis, so all four transverse arcs
- *       can be captured in a single frame.
- *     curl-thumb: thumb alone.
- *       The thumb's carpometacarpal joint rotates it ~90° relative to the
- *       finger plane. In the four-finger curl shot the thumb nail faces
- *       sideways, not toward the camera — its transverse arc is not in the
- *       image. A dedicated thumb curl shot is required. However, the geometry
- *       for extracting the thumb's IC is architecturally unresolved (the
- *       standard sagitta extractor assumes the nail faces the camera end-on;
- *       this assumption does not hold for the thumb in all poses). Thumb curl
- *       shots are captured for future development; IC extraction is skipped.
- *       See icArchitecturePending field.
- *
- * Multi-arc detection note
- * ------------------------
- * The curl-four-finger shot is expected to yield 4 arc candidates (one per
- * finger). The ShotSpec.expectedArcCount field documents the target so
- * diagnostics can surface the gap between "expected 4" and "detected N".
+ *   Longitudinal (10 shots)
+ *     Camera positioned at the nail's side profile. Extracts apex height,
+ *     apex position (AP%), and h/L ratio.
  *
  * Sequence order
  * --------------
- * Palm-up shots are grouped by hand (all left then all right), thumb first
- * within each hand. Curl shots come last so the user completes the familiar
- * flat-capture flow before switching to the end-on geometry.
+ * Top-down (left then right) → transverse (left then right) →
+ * longitudinal (left then right). Grouping by geometry minimises
+ * repositioning between shots.
  */
 
 // ---------------------------------------------------------------------------
@@ -50,184 +37,98 @@ export type Hand = 'left' | 'right';
 export type Finger = 'thumb' | 'index' | 'middle' | 'ring' | 'pinky';
 
 export type ShotType =
-  | 'top-down'           // top-down per-finger width capture
-  | 'transverse'  // end-on group shot: index/middle/ring/pinky IC
-  | 'longitudinal';       // end-on isolated shot: thumb (IC extraction pending)
+  | 'top-down'      // per-finger top-down; extracts W and L
+  | 'transverse'    // per-finger end-on cross-section; extracts IC
+  | 'longitudinal'; // per-finger side profile; extracts AP% and h/L
 
 export type ShotSpec = {
   /** Discriminates the capture geometry and expected measurements. */
   shotType: ShotType;
   hand: Hand;
-  /**
-   * For palm-up: the specific finger being photographed.
-   * For curl-four-finger and curl-thumb: null (finger(s) are implied by
-   * shotType and extractsIC).
-   */
-  finger: Finger | null;
-  /**
-   * Which fingers' IC values this shot is expected to yield.
-   * Empty for palm-up (width only). Populated for curl shots.
-   */
+  /** Every shot targets exactly one finger. */
+  finger: Finger;
+
+  requiresCard: boolean;
+
   extractsIC: readonly Finger[];
-  /**
-   * Number of distinct arc candidates expected from this shot.
-   * 1 for palm-up and curl-thumb; 4 for curl-four-finger.
-   * Documents the target so diagnostics can flag the gap between
-   * "expected 4" and "detected N".
-   */
-  expectedArcCount: 1 | 4;
-  /**
-   * When true, IC extraction for this shot geometry is architecturally
-   * unresolved — the capture is still taken for future development, but the
-   * extraction pipeline will not attempt measurement and the UI should surface
-   * a "pending" note rather than a result (or a misleading failure message).
-   *
-   * Currently true only for curl-thumb shots. The thumb's CMC joint rotates
-   * it ~90° from the finger plane, so the camera geometry required to see the
-   * thumb arc end-on is fundamentally different from the four-finger curl shot.
-   * Applying the existing sagitta extractor to a thumb curl would produce
-   * physically meaningless values. The correct approach requires a separate
-   * pose design validated against real thumb curl captures; that work is
-   * deferred to a future increment.
-   */
   icArchitecturePending: boolean;
-  /** Short display label for progress UI and diagnostics. */
   label: string;
-  /** User-facing instruction for this capture step. */
   instruction: string;
 };
 
 // ---------------------------------------------------------------------------
-// The 14-shot sequence
+// Sequence generators
+// ---------------------------------------------------------------------------
+
+const FINGERS: readonly Finger[] = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+const HANDS: readonly Hand[]     = ['left', 'right'];
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function topDownShots(): ShotSpec[] {
+  return HANDS.flatMap(hand =>
+    FINGERS.map(finger => ({
+      shotType: 'top-down' as const,
+      hand,
+      finger,
+      requiresCard: true,
+      extractsIC: [] as const,
+      icArchitecturePending: false,
+      label: `${cap(hand)} ${cap(finger)} — Top Down`,
+      instruction: `Place your ${hand} hand palm-up on a flat surface. Hold the camera directly above your ${finger} nail, pointing straight down. Keep the reference card in frame.`,
+    }))
+  );
+}
+
+function transverseShots(): ShotSpec[] {
+  return HANDS.flatMap(hand =>
+    FINGERS.map(finger => {
+      const isThumb = finger === 'thumb';
+      return {
+        shotType: 'transverse' as const,
+        hand,
+        finger,
+        requiresCard: false,
+        extractsIC: isThumb ? ([] as const) : ([finger] as const),
+        icArchitecturePending: isThumb,
+        label: `${cap(hand)} ${cap(finger)} — Transverse`,
+        instruction: isThumb
+          ? `Curl your ${hand} thumb so the nail faces the camera end-on. Capture the cross-section of the nail. IC extraction is pending for thumb transverse geometry.`
+          : `Curl your ${hand} ${finger} so the nail faces the camera end-on. Capture the full cross-section of the nail plate.`,
+      };
+    })
+  );
+}
+
+function longitudinalShots(): ShotSpec[] {
+  return HANDS.flatMap(hand =>
+    FINGERS.map(finger => ({
+      shotType: 'longitudinal' as const,
+      hand,
+      finger,
+      requiresCard: false,
+      extractsIC: [] as const,
+      icArchitecturePending: false,
+      label: `${cap(hand)} ${cap(finger)} — Longitudinal`,
+      instruction: `Position the camera at the side of your ${hand} ${finger} nail. The full nail length from base to tip should be visible in the frame.`,
+    }))
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The 30-shot sequence
 // ---------------------------------------------------------------------------
 
 /**
  * Complete measurement sequence for one client session.
- * Ordered: left top-down (5) → right top-down (5) → left four-finger curl →
- * right four-finger curl → left thumb curl → right thumb curl.
+ * Order: left top-down (5) → right top-down (5) →
+ *        left transverse (5) → right transverse (5) →
+ *        left longitudinal (5) → right longitudinal (5).
  */
 export const CAPTURE_SEQUENCE: readonly ShotSpec[] = [
-
-  // ── Left hand — top-down ────────────────────────────────────────────────
-  {
-    shotType: 'top-down', hand: 'left', finger: 'thumb',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Left thumb — width',
-    instruction: 'Place your left thumb flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-  {
-    shotType: 'top-down', hand: 'left', finger: 'index',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Left index — width',
-    instruction: 'Place your left index finger flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-  {
-    shotType: 'top-down', hand: 'left', finger: 'middle',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Left middle — width',
-    instruction: 'Place your left middle finger flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-  {
-    shotType: 'top-down', hand: 'left', finger: 'ring',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Left ring — width',
-    instruction: 'Place your left ring finger flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-  {
-    shotType: 'top-down', hand: 'left', finger: 'pinky',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Left pinky — width',
-    instruction: 'Place your left pinky flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-
-  // ── Right hand — top-down ───────────────────────────────────────────────
-  {
-    shotType: 'top-down', hand: 'right', finger: 'thumb',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Right thumb — width',
-    instruction: 'Place your right thumb flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-  {
-    shotType: 'top-down', hand: 'right', finger: 'index',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Right index — width',
-    instruction: 'Place your right index finger flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-  {
-    shotType: 'top-down', hand: 'right', finger: 'middle',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Right middle — width',
-    instruction: 'Place your right middle finger flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-  {
-    shotType: 'top-down', hand: 'right', finger: 'ring',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Right ring — width',
-    instruction: 'Place your right ring finger flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-  {
-    shotType: 'top-down', hand: 'right', finger: 'pinky',
-    extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
-    label: 'Right pinky — width',
-    instruction: 'Place your right pinky flat on the paper, nail facing up. Keep the reference card fully visible.',
-  },
-
-  // ── Transverse shots ──────────────────────────────────────────────
-  {
-    shotType: 'transverse', hand: 'left', finger: null,
-    extractsIC: ['index', 'middle', 'ring', 'pinky'], expectedArcCount: 4,
-    icArchitecturePending: false,
-    label: 'Left — four-finger curl',
-    instruction: 'Hold dark cloth or paper behind your left hand. Curl your index, middle, ring, and pinky so all four fingertips point straight at the camera — nails facing you, tips level with each other. Keep the reference card visible in frame.',
-  },
-  {
-    shotType: 'transverse', hand: 'right', finger: null,
-    extractsIC: ['index', 'middle', 'ring', 'pinky'], expectedArcCount: 4,
-    icArchitecturePending: false,
-    label: 'Right — four-finger curl',
-    instruction: 'Hold dark cloth or paper behind your right hand. Curl your index, middle, ring, and pinky so all four fingertips point straight at the camera — nails facing you, tips level with each other. Keep the reference card visible in frame.',
-  },
-
-  // ── Longitudinal shots ───────────────
-  {
-    shotType: 'longitudinal', hand: 'left', finger: null,
-    extractsIC: ['thumb'], expectedArcCount: 1,
-    icArchitecturePending: true,
-    label: 'Left — thumb curl',
-    instruction: 'Hold a dark surface behind your left hand. Extend your left thumb end-on toward the camera. Keep the reference card visible in frame.',
-  },
-  {
-    shotType: 'longitudinal', hand: 'right', finger: null,
-    extractsIC: ['thumb'], expectedArcCount: 1,
-    icArchitecturePending: true,
-    label: 'Right — thumb curl',
-    instruction: 'Hold a dark surface behind your right hand. Extend your right thumb end-on toward the camera. Keep the reference card visible in frame.',
-  },
+  ...topDownShots(),
+  ...transverseShots(),
+  ...longitudinalShots(),
 ];
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** True for any shot that uses end-on curl geometry. */
-export function isCurlShot(spec: ShotSpec): boolean {
-  return spec.shotType === 'transverse' || spec.shotType === 'longitudinal';
-}
-
-/** Human-readable list of fingers whose IC this shot targets. */
-export function icTargetLabel(spec: ShotSpec): string {
-  if (spec.extractsIC.length === 0) return 'none (width only)';
-  return spec.extractsIC.join(', ');
-}
-
-/** Section label for grouping shots in progress UI. */
-export function sectionLabel(spec: ShotSpec): string {
-  if (spec.shotType === 'top-down') {
-    return `${capitalize(spec.hand)} hand — width`;
-  }
-  return 'Curl shots — IC';
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+export const TOTAL_SHOTS = CAPTURE_SEQUENCE.length; // 30

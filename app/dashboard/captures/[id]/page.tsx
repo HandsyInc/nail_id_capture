@@ -65,8 +65,9 @@ export default async function CaptureViewerPage({
                   }}
                 >
                   <img
-                    src={`/api/captures/images/${image.id}`}
-                    alt="Capture image"
+  src={`/api/captures/images/${image.id}`}
+  alt="Capture image"
+  loading="lazy"
                     style={{
                       width: "100%",
                       borderRadius: "6px",
