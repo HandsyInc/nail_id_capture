@@ -50,9 +50,9 @@ export type Hand = 'left' | 'right';
 export type Finger = 'thumb' | 'index' | 'middle' | 'ring' | 'pinky';
 
 export type ShotType =
-  | 'palm-up'           // top-down per-finger width capture
-  | 'curl-four-finger'  // end-on group shot: index/middle/ring/pinky IC
-  | 'curl-thumb';       // end-on isolated shot: thumb (IC extraction pending)
+  | 'top-down'           // top-down per-finger width capture
+  | 'transverse'  // end-on group shot: index/middle/ring/pinky IC
+  | 'longitudinal';       // end-on isolated shot: thumb (IC extraction pending)
 
 export type ShotSpec = {
   /** Discriminates the capture geometry and expected measurements. */
@@ -103,105 +103,101 @@ export type ShotSpec = {
 
 /**
  * Complete measurement sequence for one client session.
- * Ordered: left palm-up (5) → right palm-up (5) → left four-finger curl →
+ * Ordered: left top-down (5) → right top-down (5) → left four-finger curl →
  * right four-finger curl → left thumb curl → right thumb curl.
  */
 export const CAPTURE_SEQUENCE: readonly ShotSpec[] = [
 
-  // ── Left hand — palm-up ────────────────────────────────────────────────
+  // ── Left hand — top-down ────────────────────────────────────────────────
   {
-    shotType: 'palm-up', hand: 'left', finger: 'thumb',
+    shotType: 'top-down', hand: 'left', finger: 'thumb',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Left thumb — width',
     instruction: 'Place your left thumb flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
   {
-    shotType: 'palm-up', hand: 'left', finger: 'index',
+    shotType: 'top-down', hand: 'left', finger: 'index',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Left index — width',
     instruction: 'Place your left index finger flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
   {
-    shotType: 'palm-up', hand: 'left', finger: 'middle',
+    shotType: 'top-down', hand: 'left', finger: 'middle',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Left middle — width',
     instruction: 'Place your left middle finger flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
   {
-    shotType: 'palm-up', hand: 'left', finger: 'ring',
+    shotType: 'top-down', hand: 'left', finger: 'ring',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Left ring — width',
     instruction: 'Place your left ring finger flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
   {
-    shotType: 'palm-up', hand: 'left', finger: 'pinky',
+    shotType: 'top-down', hand: 'left', finger: 'pinky',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Left pinky — width',
     instruction: 'Place your left pinky flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
 
-  // ── Right hand — palm-up ───────────────────────────────────────────────
+  // ── Right hand — top-down ───────────────────────────────────────────────
   {
-    shotType: 'palm-up', hand: 'right', finger: 'thumb',
+    shotType: 'top-down', hand: 'right', finger: 'thumb',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Right thumb — width',
     instruction: 'Place your right thumb flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
   {
-    shotType: 'palm-up', hand: 'right', finger: 'index',
+    shotType: 'top-down', hand: 'right', finger: 'index',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Right index — width',
     instruction: 'Place your right index finger flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
   {
-    shotType: 'palm-up', hand: 'right', finger: 'middle',
+    shotType: 'top-down', hand: 'right', finger: 'middle',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Right middle — width',
     instruction: 'Place your right middle finger flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
   {
-    shotType: 'palm-up', hand: 'right', finger: 'ring',
+    shotType: 'top-down', hand: 'right', finger: 'ring',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Right ring — width',
     instruction: 'Place your right ring finger flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
   {
-    shotType: 'palm-up', hand: 'right', finger: 'pinky',
+    shotType: 'top-down', hand: 'right', finger: 'pinky',
     extractsIC: [], expectedArcCount: 1, icArchitecturePending: false,
     label: 'Right pinky — width',
     instruction: 'Place your right pinky flat on the paper, nail facing up. Keep the reference card fully visible.',
   },
 
-  // ── Four-finger curl shots ──────────────────────────────────────────────
+  // ── Transverse shots ──────────────────────────────────────────────
   {
-    shotType: 'curl-four-finger', hand: 'left', finger: null,
+    shotType: 'transverse', hand: 'left', finger: null,
     extractsIC: ['index', 'middle', 'ring', 'pinky'], expectedArcCount: 4,
     icArchitecturePending: false,
     label: 'Left — four-finger curl',
     instruction: 'Hold dark cloth or paper behind your left hand. Curl your index, middle, ring, and pinky so all four fingertips point straight at the camera — nails facing you, tips level with each other. Keep the reference card visible in frame.',
   },
   {
-    shotType: 'curl-four-finger', hand: 'right', finger: null,
+    shotType: 'transverse', hand: 'right', finger: null,
     extractsIC: ['index', 'middle', 'ring', 'pinky'], expectedArcCount: 4,
     icArchitecturePending: false,
     label: 'Right — four-finger curl',
     instruction: 'Hold dark cloth or paper behind your right hand. Curl your index, middle, ring, and pinky so all four fingertips point straight at the camera — nails facing you, tips level with each other. Keep the reference card visible in frame.',
   },
 
-  // ── Thumb curl shots — IC extraction architecture pending ───────────────
-  //
-  // The thumb's CMC joint rotates it ~90° from the finger plane. A separate
-  // capture pose is taken so the thumb arc can be developed in a future
-  // increment, but no IC measurement is attempted here.
+  // ── Longitudinal shots ───────────────
   {
-    shotType: 'curl-thumb', hand: 'left', finger: null,
+    shotType: 'longitudinal', hand: 'left', finger: null,
     extractsIC: ['thumb'], expectedArcCount: 1,
     icArchitecturePending: true,
     label: 'Left — thumb curl',
     instruction: 'Hold a dark surface behind your left hand. Extend your left thumb end-on toward the camera. Keep the reference card visible in frame.',
   },
   {
-    shotType: 'curl-thumb', hand: 'right', finger: null,
+    shotType: 'longitudinal', hand: 'right', finger: null,
     extractsIC: ['thumb'], expectedArcCount: 1,
     icArchitecturePending: true,
     label: 'Right — thumb curl',
@@ -215,7 +211,7 @@ export const CAPTURE_SEQUENCE: readonly ShotSpec[] = [
 
 /** True for any shot that uses end-on curl geometry. */
 export function isCurlShot(spec: ShotSpec): boolean {
-  return spec.shotType === 'curl-four-finger' || spec.shotType === 'curl-thumb';
+  return spec.shotType === 'transverse' || spec.shotType === 'longitudinal';
 }
 
 /** Human-readable list of fingers whose IC this shot targets. */
@@ -226,7 +222,7 @@ export function icTargetLabel(spec: ShotSpec): string {
 
 /** Section label for grouping shots in progress UI. */
 export function sectionLabel(spec: ShotSpec): string {
-  if (spec.shotType === 'palm-up') {
+  if (spec.shotType === 'top-down') {
     return `${capitalize(spec.hand)} hand — width`;
   }
   return 'Curl shots — IC';
