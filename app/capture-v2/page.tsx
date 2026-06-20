@@ -4,8 +4,69 @@ import { useState } from 'react';
 import LiveCaptureView from '@/components/capture-v2/LiveCaptureView';
 import {
   CAPTURE_SEQUENCE,
+  TOTAL_SHOTS,
   type ShotSpec,
+  type ShotType,
 } from '@/lib/capture-v2/shot-spec';
+
+type SectionIntro = {
+  image: string;
+  imageAlt: string;
+  title: string;
+  checklist?: string[];
+  steps: string[];
+  buttonLabel: string;
+};
+
+const SECTION_INTROS: Record<ShotType, SectionIntro> = {
+  'top-down': {
+    image: '/example.jpg',
+    imageAlt: 'Example top-down finger photo',
+    title: 'Top-Down Shots',
+    checklist: [
+      'A plain white sheet of standard printer paper (8.5 × 11)',
+      'A dark credit, debit, or loyalty card (not white)',
+    ],
+    steps: [
+      'Place white paper flat on the table',
+      'Remove all rings',
+      'Lay one finger flat on the paper beside the card, nail facing up',
+      'Let your other fingers hang off the table edge',
+      'Hold your phone straight above, not angled',
+      'Keep the full finger and full card in the frame',
+    ],
+    buttonLabel: 'Begin top-down shots',
+  },
+  'transverse': {
+    image: '/example.jpg',
+    imageAlt: 'Example end-on finger photo',
+    title: 'End-On Shots',
+    steps: [
+      'No reference card needed for this section',
+      'Curl each fingertip toward the camera, nail facing the lens',
+      'Hold your phone level with your fingertip',
+      'Keep your finger steady — the camera will guide you',
+    ],
+    buttonLabel: 'Begin end-on shots',
+  },
+  'longitudinal': {
+    image: '/example.jpg',
+    imageAlt: 'Example side-profile finger photo',
+    title: 'Side-Profile Shots',
+    steps: [
+      'No reference card needed for this section',
+      'Hold each finger sideways, tip pointing toward the camera',
+      'Keep your fingernail facing to the side, not up',
+      'Hold your phone level with your fingertip',
+    ],
+    buttonLabel: 'Begin side-profile shots',
+  },
+};
+
+function isNewSection(index: number): boolean {
+  if (index === 0) return true;
+  return CAPTURE_SEQUENCE[index].shotType !== CAPTURE_SEQUENCE[index - 1].shotType;
+}
 
 type CaptureEntry = {
   file: File;
@@ -23,7 +84,7 @@ export default function CaptureV2Page({
 
   const [captures, setCaptures] = useState<CaptureEntry[]>([]);
   const [currentShotIndex, setCurrentShotIndex] = useState(0);
-  const [step, setStep] = useState<'capture' | 'complete'>('capture');
+  const [step, setStep] = useState<'capture' | 'section-intro' | 'complete'>('section-intro');
 
   function handlePhotoTaken(
     file: File,
@@ -34,22 +95,69 @@ export default function CaptureV2Page({
     setCaptures(current => [...current, { file, preview, diagnostics, spec }]);
 
     const nextIndex = currentShotIndex + 1;
-    if (nextIndex >= CAPTURE_SEQUENCE.length) {
-      setStep('complete');
-    } else {
-      setCurrentShotIndex(nextIndex);
-    }
+    if (nextIndex >= TOTAL_SHOTS) {
+  setStep('complete');
+} else {
+  setCurrentShotIndex(nextIndex);
+  setStep(isNewSection(nextIndex) ? 'section-intro' : 'capture');
+}
   }
 
   function handleRestart() {
     setCaptures([]);
     setCurrentShotIndex(0);
-    setStep('capture');
+    setStep('section-intro');
   }
 
   const currentShot = CAPTURE_SEQUENCE[currentShotIndex];
 
+if (step === 'section-intro') {
+  const intro = SECTION_INTROS[currentShot.shotType];
+
   return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6 py-10 text-white">
+      <div className="w-full max-w-sm space-y-5">
+
+        <img
+          src={intro.image}
+          alt={intro.imageAlt}
+          className="w-full rounded-2xl object-contain mx-auto"
+          style={{ maxHeight: '40vh' }}
+        />
+
+        <h1 className="text-xl font-bold text-gray-100 text-center">{intro.title}</h1>
+
+        {intro.checklist && (
+          <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 space-y-1">
+            <p className="text-sm text-gray-400 mb-2">You&apos;ll need:</p>
+            {intro.checklist.map((item) => (
+              <p key={item} className="text-sm text-gray-300">• {item}</p>
+            ))}
+          </div>
+        )}
+
+        <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50 space-y-2">
+          {intro.steps.map((s) => (
+            <div key={s} className="flex items-start gap-2">
+              <span className="text-blue-400 mt-0.5 shrink-0">•</span>
+              <span className="text-sm text-gray-300">{s}</span>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={() => setStep('capture')}
+          className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 px-6 py-3 text-white font-semibold"
+        >
+          {intro.buttonLabel}
+        </button>
+
+      </div>
+    </div>
+  );
+}
+
+return (
     <main style={{ padding: '2rem' }}>
       {step === 'capture' && (
         <>
