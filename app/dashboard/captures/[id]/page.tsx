@@ -40,6 +40,26 @@ export default async function CaptureViewerPage({
       <p>Status: {session.status}</p>
       <p>Created: {session.createdAt.toLocaleDateString()}</p>
 
+      {session.status === "SUBMITTED" && (
+        <p style={{ marginTop: "0.75rem" }}>
+          <Link
+            href={`/measure/wz?sessionId=${session.id}`}
+            style={{
+              display: "inline-block",
+              padding: "0.5rem 1rem",
+              background: "#2563eb",
+              color: "white",
+              borderRadius: "6px",
+              textDecoration: "none",
+              fontWeight: 600,
+              fontSize: "0.875rem",
+            }}
+          >
+            Measure W(z) →
+          </Link>
+        </p>
+      )}
+
       <section style={{ marginTop: "2rem" }}>
         <h2>Images</h2>
 
