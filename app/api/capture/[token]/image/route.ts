@@ -81,8 +81,16 @@ export async function POST(
 
     await uploadToR2({ key, body: buffer, contentType: 'image/jpeg' });
 
-    await prisma.captureImage.create({
-      data: {
+    // Upsert: if this (sessionId, sequenceNumber) already exists (e.g. a retry),
+    // overwrite the metadata instead of creating a duplicate row.
+    await prisma.captureImage.upsert({
+      where: {
+        sessionId_sequenceNumber: {
+          sessionId:      session.id,
+          sequenceNumber: index,
+        },
+      },
+      create: {
         sessionId:      session.id,
         sequenceNumber: index,
         storageKey:     key,
@@ -92,6 +100,15 @@ export async function POST(
         hand:           toHand(spec.hand),
         finger:         toFinger(spec.finger),
         capturedAt:     new Date(),
+      },
+      update: {
+        storageKey:    key,
+        mimeType:      'image/jpeg',
+        fileSizeBytes: buffer.length,
+        imageType:     toImageType(spec.shotType),
+        hand:          toHand(spec.hand),
+        finger:        toFinger(spec.finger),
+        capturedAt:    new Date(),
       },
     });
 

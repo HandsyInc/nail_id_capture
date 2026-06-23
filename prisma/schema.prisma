@@ -214,6 +214,7 @@ model CaptureImage {
 
   session CaptureSession @relation(fields: [sessionId], references: [id])
 
+  @@unique([sessionId, sequenceNumber])
   @@index([sessionId])
 }
 
