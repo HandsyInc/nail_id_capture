@@ -11,9 +11,31 @@ import {
 } from '@/lib/measure/wz-geometry';
 import type { ImageMeasurementState } from './WzCanvas';
 
-// Fixed minimap canvas dimensions (px). Portrait ratio suits nail images.
+// Fixed canvas CSS dimensions. Portrait ratio suits nail images.
 const MW = 100;
 const MH = 160;
+
+// ---------------------------------------------------------------------------
+// Letterbox helper (same logic as WzCanvas; kept local to avoid coupling)
+// ---------------------------------------------------------------------------
+
+type LbRect = { dx: number; dy: number; dw: number; dh: number };
+
+function computeLetterbox(imgW: number, imgH: number, canvasW: number, canvasH: number): LbRect {
+  const imgAspect    = imgW / imgH;
+  const canvasAspect = canvasW / canvasH;
+  let dw: number, dh: number;
+  if (imgAspect > canvasAspect) {
+    dw = canvasW;
+    dh = canvasW / imgAspect;
+  } else {
+    dh = canvasH;
+    dw = canvasH * imgAspect;
+  }
+  return { dx: (canvasW - dw) / 2, dy: (canvasH - dh) / 2, dw, dh };
+}
+
+// ---------------------------------------------------------------------------
 
 type Props = {
   imageUrl:    string;
@@ -26,12 +48,9 @@ export function WzMinimap({ imageUrl, state, naturalSize }: Props) {
   const imgRef    = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
-    const img = new Image();
-    img.onload = () => {
-      imgRef.current = img;
-      draw();
-    };
-    img.src = imageUrl;
+    const img  = new Image();
+    img.onload = () => { imgRef.current = img; draw(); };
+    img.src    = imageUrl;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageUrl]);
 
@@ -48,29 +67,35 @@ export function WzMinimap({ imageUrl, state, naturalSize }: Props) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const c = ctx; // non-null alias so closures below satisfy TS
+    // Non-null alias — TypeScript can narrow `ctx` through closures below
+    const c: CanvasRenderingContext2D = ctx;
 
     const { w: natW, h: natH } = naturalSize;
-    const scaleX = MW / natW;
-    const scaleY = MH / natH;
 
     c.clearRect(0, 0, MW, MH);
-    c.drawImage(img, 0, 0, MW, MH);
 
-    // Dim overlay so landmarks stand out
-    c.fillStyle = 'rgba(0,0,0,0.25)';
-    c.fillRect(0, 0, MW, MH);
+    // Draw image letterboxed into the 100×160 minimap
+    const lb = computeLetterbox(natW, natH, MW, MH);
+    c.drawImage(img, 0, 0, natW, natH, lb.dx, lb.dy, lb.dw, lb.dh);
 
+    // Dim overlay (only over the drawn image area)
+    c.fillStyle = 'rgba(0,0,0,0.30)';
+    c.fillRect(lb.dx, lb.dy, lb.dw, lb.dh);
+
+    // ── Coordinate helpers ────────────────────────────────────────────────
     function toM(p: Point): Point {
-      return { x: p.x * scaleX, y: p.y * scaleY };
+      return {
+        x: lb.dx + (p.x / natW) * lb.dw,
+        y: lb.dy + (p.y / natH) * lb.dh,
+      };
     }
 
     function mLine(
-      p1: Point,
-      p2: Point,
+      p1:    Point,
+      p2:    Point,
       color: string,
       width: number,
-      dash: number[] = [],
+      dash:  number[] = [],
     ) {
       const d1 = toM(p1);
       const d2 = toM(p2);
@@ -92,21 +117,21 @@ export function WzMinimap({ imageUrl, state, naturalSize }: Props) {
       c.fill();
     }
 
+    // ── Landmarks ──────────────────────────────────────────────────────────
     const { pointA: A, pointB: B } = state;
     const curStation = activeStation(state.step);
 
     if (A && B) {
       const halfLen = natW * 0.18;
 
-      // Axis line (faint)
+      // Axis
       mLine(A, B, 'rgba(250,204,21,0.4)', 0.5, [4, 3]);
 
-      // All four station lines
+      // Station lines
       for (const s of STATIONS) {
         const t          = STATION_FRACTIONS[s];
         const isActive   = s === curStation;
         const [ep1, ep2] = stationLineEndpoints(A, B, t, halfLen);
-
         mLine(
           ep1,
           ep2,
@@ -116,22 +141,19 @@ export function WzMinimap({ imageUrl, state, naturalSize }: Props) {
 
         // Completed width line
         const sw = state.sidewalls[s];
-        if (sw.left && sw.right) {
-          mLine(sw.left, sw.right, 'rgba(74,222,128,0.7)', 1);
-        }
+        if (sw.left && sw.right) mLine(sw.left, sw.right, 'rgba(74,222,128,0.7)', 1);
       }
 
-      // Crop rectangle for active station
+      // Crop rectangle for active station (dashed sky blue)
       if (curStation) {
         const crop  = computeCropRegion(A, B, curStation, natW, natH);
-        const cx    = crop.x * scaleX;
-        const cy    = crop.y * scaleY;
-        const cw    = crop.w * scaleX;
-        const ch    = crop.h * scaleY;
+        // Scale crop rect corners through the letterbox
+        const tl = toM({ x: crop.x,          y: crop.y          });
+        const br = toM({ x: crop.x + crop.w, y: crop.y + crop.h });
         c.strokeStyle = 'rgba(56,189,248,0.75)';
         c.lineWidth   = 1;
         c.setLineDash([3, 2]);
-        c.strokeRect(cx, cy, cw, ch);
+        c.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
         c.setLineDash([]);
       }
 
