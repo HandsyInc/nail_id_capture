@@ -8,6 +8,8 @@ import {
   type ShotSpec,
   type ShotType,
 } from '@/lib/capture-v2/shot-spec';
+import type { Matrix3x3 } from '@/lib/capture-v2/card-homography';
+import type { CaptureDiagnostics } from '@/components/capture-v2/LiveCaptureView';
 
 type SectionIntro = {
   image: string;
@@ -74,7 +76,8 @@ function isNewSection(index: number): boolean {
 type CaptureEntry = {
   file: File;
   preview: string;
-  diagnostics: unknown;
+  /** imageToCard from CardHomography; null when no card was detected in the captured frame. */
+  hMatrix: Matrix3x3 | null;
   spec: ShotSpec;
 };
 
@@ -92,10 +95,11 @@ export default function CaptureV2Page({
   function handlePhotoTaken(
     file: File,
     preview: string,
-    diagnostics: unknown,
+    diagnostics: CaptureDiagnostics,
     spec: ShotSpec
   ) {
-    setCaptures(current => [...current, { file, preview, diagnostics, spec }]);
+    const hMatrix = diagnostics.cardHomography?.imageToCard ?? null;
+    setCaptures(current => [...current, { file, preview, hMatrix, spec }]);
 
     const nextIndex = currentShotIndex + 1;
     if (nextIndex >= TOTAL_SHOTS) {
@@ -225,6 +229,7 @@ function CompletionPanel({
           body: JSON.stringify({
             index: i,
             preview: capture.preview,
+            hMatrix: capture.hMatrix,
             spec: {
               shotType: capture.spec.shotType,
               hand: capture.spec.hand,

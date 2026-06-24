@@ -42,9 +42,11 @@ export async function POST(
 ) {
   try {
     const body = await req.json();
-    const { index, preview, spec } = body as {
+    const { index, preview, hMatrix, spec } = body as {
       index: number;
       preview: string;
+      /** 3×3 imageToCard homography from CardHomography; null when no card detected. */
+      hMatrix: [[number,number,number],[number,number,number],[number,number,number]] | null;
       spec: { shotType: string; hand: string; finger: string };
     };
 
@@ -100,6 +102,7 @@ export async function POST(
         hand:           toHand(spec.hand),
         finger:         toFinger(spec.finger),
         capturedAt:     new Date(),
+        h_matrix:       hMatrix ?? undefined,
       },
       update: {
         storageKey:    key,
@@ -109,6 +112,9 @@ export async function POST(
         hand:          toHand(spec.hand),
         finger:        toFinger(spec.finger),
         capturedAt:    new Date(),
+        // hMatrix ?? undefined: a null from a retry without card detection does
+        // not overwrite a valid H stored from the first successful upload.
+        h_matrix:      hMatrix ?? undefined,
       },
     });
 

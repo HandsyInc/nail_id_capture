@@ -211,6 +211,7 @@ model CaptureImage {
   mimeType       String?
   capturedAt     DateTime?
   uploadedAt     DateTime  @default(now())
+  h_matrix       Json?
 
   session CaptureSession @relation(fields: [sessionId], references: [id])
 
