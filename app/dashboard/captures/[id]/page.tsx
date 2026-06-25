@@ -41,7 +41,22 @@ export default async function CaptureViewerPage({
       <p>Created: {session.createdAt.toLocaleDateString()}</p>
 
       {session.status === "SUBMITTED" && (
-        <p style={{ marginTop: "0.75rem" }}>
+        <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          <Link
+            href={`/measure/chord?sessionId=${session.id}`}
+            style={{
+              display: "inline-block",
+              padding: "0.5rem 1rem",
+              background: "#059669",
+              color: "white",
+              borderRadius: "6px",
+              textDecoration: "none",
+              fontWeight: 600,
+              fontSize: "0.875rem",
+            }}
+          >
+            Measure Chord Width →
+          </Link>
           <Link
             href={`/measure/wz?sessionId=${session.id}`}
             style={{
@@ -57,7 +72,7 @@ export default async function CaptureViewerPage({
           >
             Measure W(z) →
           </Link>
-        </p>
+        </div>
       )}
 
       <section style={{ marginTop: "2rem" }}>

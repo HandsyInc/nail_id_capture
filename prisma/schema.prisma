@@ -210,8 +210,9 @@ model CaptureImage {
   fileSizeBytes  Int?
   mimeType       String?
   capturedAt     DateTime?
-  uploadedAt     DateTime  @default(now())
-  h_matrix       Json?
+  uploadedAt        DateTime  @default(now())
+  h_matrix          Json?
+  chordMeasurement  Json?     // D4.7 fallback: SAM2_FOUNDER_CLICK_CHORD result when no GeometryPackage exists
 
   session CaptureSession @relation(fields: [sessionId], references: [id])
 
