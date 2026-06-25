@@ -6,14 +6,45 @@ import { useCallback, useRef, useState } from 'react';
 // Types
 // ---------------------------------------------------------------------------
 
+// D4.8 app-layer diagnostics — always present when routed through
+// app/api/measure/chord/route.ts (computed there from the stored H matrix).
+
+export type BboxDiag = {
+  bbox_px:               { minX: number; minY: number; maxX: number; maxY: number };
+  bbox_width_px:         number;
+  bbox_height_px:        number;
+  centroid_px:           { x: number; y: number };
+  bbox_mm:               { minX: number; minY: number; maxX: number; maxY: number };
+  bbox_width_mm:         number;
+  bbox_height_mm:        number;
+  bbox_scale_x_mm_per_px: number;
+  bbox_scale_y_mm_per_px: number;
+  jacobian_at_centroid:  number;
+};
+
+export type ChordDiag = {
+  scale_mm_per_px_at_click: number;        // mm/px at nail click — H Jacobian
+  depth_correction_factor:  number;        // (D − h) / D
+  h_used_mm:                number;
+  D_used_mm:                number;
+  mrr_width_px:             number | null; // MRR short side in pixels, before H
+  mrr_length_px:            number | null; // MRR long  side in pixels, before H
+  mrr_width_raw_mm:         number | null; // MRR short side after H, before depth
+  mrr_length_raw_mm:        number | null; // MRR long  side after H, before depth
+  mrr_width_implied_px:     number | null; // mrr_width_raw_mm / scale (cross-check)
+  bbox:                     BboxDiag | null;
+  h_matrix:                 { row0: number[]; row1: number[]; row2: number[] } | null;
+};
+
 export type ChordResult = {
-  width_mm:        number;
-  length_mm:       number;
-  angle_deg:       number;
+  width_mm:          number;
+  length_mm:         number;
+  angle_deg:         number;
   overlay_image_b64: string;
-  contour_px:      [number, number][];
-  mrr_corners_mm:  [number, number][];
-  nail_click_used: { x: number; y: number };
+  contour_px:        [number, number][];
+  mrr_corners_mm:    [number, number][];
+  nail_click_used:   { x: number; y: number };
+  diag?:             ChordDiag;   // always present with current route.ts
 };
 
 type Phase =
@@ -45,6 +76,20 @@ function toNaturalCoords(
     x: (e.clientX - rect.left) * scaleX,
     y: (e.clientY - rect.top)  * scaleY,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic row helper (used inside ChordCanvas)
+
+function DiagRow({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'baseline' }}>
+      <span style={{ color: '#6b7280', flexShrink: 0, width: '22rem' }}>{label}</span>
+      <span style={{ color: highlight ? '#34d399' : '#d1d5db', fontWeight: highlight ? 600 : 400 }}>
+        {value}
+      </span>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -216,63 +261,199 @@ export function ChordCanvas({ captureImageId, sessionId, imageUrl, onAccepted }:
       )}
 
       {phase.step === 'done' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
-          {/* Width result */}
-          <div>
-            <span
-              style={{
-                fontSize:   '1.75rem',
-                fontWeight: 700,
-                color:      '#34d399',
-                letterSpacing: '-0.02em',
-              }}
-            >
-              {phase.result.width_mm.toFixed(2)} mm
-            </span>
-            <span style={{ marginLeft: '0.5rem', color: '#9ca3af', fontSize: '0.8rem' }}>
-              chord width
-            </span>
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
+            {/* Width result */}
+            <div>
+              <span
+                style={{
+                  fontSize:   '1.75rem',
+                  fontWeight: 700,
+                  color:      '#34d399',
+                  letterSpacing: '-0.02em',
+                }}
+              >
+                {phase.result.width_mm.toFixed(2)} mm
+              </span>
+              <span style={{ marginLeft: '0.5rem', color: '#9ca3af', fontSize: '0.8rem' }}>
+                chord width
+              </span>
+            </div>
+
+            <div style={{ color: '#6b7280', fontSize: '0.8rem' }}>
+              length {phase.result.length_mm.toFixed(2)} mm
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginLeft: 'auto' }}>
+              <button
+                onClick={handleReset}
+                disabled={accepting}
+                style={{
+                  padding:    '0.4rem 0.85rem',
+                  fontSize:   '0.8rem',
+                  borderRadius: '5px',
+                  border:     '1px solid #4b5563',
+                  background: 'transparent',
+                  color:      '#9ca3af',
+                  cursor:     accepting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Redo
+              </button>
+              <button
+                onClick={handleAccept}
+                disabled={accepting}
+                style={{
+                  padding:    '0.4rem 1rem',
+                  fontSize:   '0.8rem',
+                  fontWeight: 600,
+                  borderRadius: '5px',
+                  border:     'none',
+                  background: accepting ? '#1d4ed8' : '#2563eb',
+                  color:      '#fff',
+                  cursor:     accepting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {accepting ? 'Saving…' : 'Accept →'}
+              </button>
+            </div>
           </div>
 
-          <div style={{ color: '#6b7280', fontSize: '0.8rem' }}>
-            length {phase.result.length_mm.toFixed(2)} mm
-          </div>
+          {/* D4.8 diagnostic panel — always present (diag computed in route.ts) */}
+          {phase.result.diag && (
+            <div
+              style={{
+                marginTop:    '0.75rem',
+                padding:      '0.75rem 1rem',
+                background:   'rgba(17,24,39,0.8)',
+                border:       '1px solid #374151',
+                borderRadius: '6px',
+                fontSize:     '0.75rem',
+                fontFamily:   'monospace',
+                color:        '#9ca3af',
+                lineHeight:   1.7,
+              }}
+            >
+              <div style={{ color: '#4b5563', marginBottom: '0.4rem', fontFamily: 'system-ui', letterSpacing: '0.07em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                D4.8 pipeline breakdown
+              </div>
 
-          {/* Action buttons */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginLeft: 'auto' }}>
-            <button
-              onClick={handleReset}
-              disabled={accepting}
-              style={{
-                padding:    '0.4rem 0.85rem',
-                fontSize:   '0.8rem',
-                borderRadius: '5px',
-                border:     '1px solid #4b5563',
-                background: 'transparent',
-                color:      '#9ca3af',
-                cursor:     accepting ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Redo
-            </button>
-            <button
-              onClick={handleAccept}
-              disabled={accepting}
-              style={{
-                padding:    '0.4rem 1rem',
-                fontSize:   '0.8rem',
-                fontWeight: 600,
-                borderRadius: '5px',
-                border:     'none',
-                background: accepting ? '#1d4ed8' : '#2563eb',
-                color:      '#fff',
-                cursor:     accepting ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {accepting ? 'Saving…' : 'Accept →'}
-            </button>
-          </div>
-        </div>
+              {/* ① pixel MRR */}
+              <DiagRow
+                label="① MRR width  (px, before H)"
+                value={phase.result.diag.mrr_width_px !== null
+                  ? `${phase.result.diag.mrr_width_px!.toFixed(1)} px   ×   ${phase.result.diag.mrr_length_px!.toFixed(1)} px`
+                  : 'not returned by service'}
+              />
+
+              {/* ② scale */}
+              <DiagRow
+                label="② scale at click  (H Jacobian)"
+                value={`${phase.result.diag.scale_mm_per_px_at_click.toFixed(5)} mm/px   =   ${(1 / phase.result.diag.scale_mm_per_px_at_click).toFixed(3)} px/mm`}
+              />
+
+              {/* ③ post-H pre-depth */}
+              <DiagRow
+                label="③ MRR width  (mm after H, before depth)"
+                value={phase.result.diag.mrr_width_raw_mm !== null
+                  ? `${phase.result.diag.mrr_width_raw_mm!.toFixed(4)} mm   ×   ${phase.result.diag.mrr_length_raw_mm!.toFixed(4)} mm`
+                  : 'not returned by service'}
+                highlight={phase.result.diag.mrr_width_raw_mm !== null}
+              />
+
+              {/* ③b cross-check */}
+              {phase.result.diag.mrr_width_implied_px !== null && (
+                <DiagRow
+                  label="   implied px  (③ ÷ ②)"
+                  value={`${phase.result.diag.mrr_width_implied_px!.toFixed(1)} px  ${
+                    phase.result.diag.mrr_width_px !== null
+                      ? `(service: ${phase.result.diag.mrr_width_px!.toFixed(1)} px)`
+                      : ''
+                  }`}
+                />
+              )}
+
+              {/* ④ depth correction */}
+              <DiagRow
+                label={`④ depth correction  ×(D−h)/D  =  (${phase.result.diag.D_used_mm}−${phase.result.diag.h_used_mm})/${phase.result.diag.D_used_mm}`}
+                value={`×${phase.result.diag.depth_correction_factor.toFixed(5)}`}
+              />
+
+              {/* ⑤ final */}
+              <DiagRow
+                label="⑤ final depth-corrected width"
+                value={`${phase.result.width_mm.toFixed(4)} mm`}
+                highlight
+              />
+
+              {/* click */}
+              <DiagRow
+                label="nail click (natural px)"
+                value={`x = ${phase.result.nail_click_used.x.toFixed(0)},  y = ${phase.result.nail_click_used.y.toFixed(0)}`}
+              />
+
+              {/* ⑥ Bounding-box cross-check */}
+              {phase.result.diag.bbox && (() => {
+                const b = phase.result.diag.bbox!;
+                const agree = Math.abs(b.bbox_scale_x_mm_per_px - b.jacobian_at_centroid) /
+                              b.jacobian_at_centroid < 0.05; // within 5%
+                return (
+                  <>
+                    <div style={{ borderTop: '1px solid #374151', margin: '0.4rem 0' }} />
+                    <div style={{ color: '#4b5563', marginBottom: '0.2rem', fontFamily: 'system-ui', letterSpacing: '0.07em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                      ⑥ contour bbox cross-check (coordinate-space verification)
+                    </div>
+                    <DiagRow
+                      label="   bbox  (px)"
+                      value={`${b.bbox_width_px.toFixed(0)} × ${b.bbox_height_px.toFixed(0)} px   centroid (${b.centroid_px.x.toFixed(0)}, ${b.centroid_px.y.toFixed(0)})`}
+                    />
+                    <DiagRow
+                      label="   bbox  (mm after H)"
+                      value={`${b.bbox_width_mm.toFixed(3)} × ${b.bbox_height_mm.toFixed(3)} mm`}
+                    />
+                    <DiagRow
+                      label="   empirical scale x  (bbox_mm / bbox_px)"
+                      value={`${b.bbox_scale_x_mm_per_px.toFixed(5)} mm/px`}
+                      highlight={!agree}
+                    />
+                    <DiagRow
+                      label="   empirical scale y  (bbox_mm / bbox_px)"
+                      value={`${b.bbox_scale_y_mm_per_px.toFixed(5)} mm/px`}
+                    />
+                    <DiagRow
+                      label="   Jacobian at contour centroid"
+                      value={`${b.jacobian_at_centroid.toFixed(5)} mm/px`}
+                    />
+                    <DiagRow
+                      label="   coordinate space check"
+                      value={agree
+                        ? '✓ empirical ≈ Jacobian — contour in full-res pixel space'
+                        : `✗ MISMATCH  ratio = ${(b.bbox_scale_x_mm_per_px / b.jacobian_at_centroid).toFixed(3)}  — contour likely in downsampled space`}
+                      highlight={!agree}
+                    />
+                  </>
+                );
+              })()}
+
+              {/* H matrix */}
+              {phase.result.diag.h_matrix && (() => {
+                const hm = phase.result.diag.h_matrix!;
+                return (
+                  <>
+                    <div style={{ borderTop: '1px solid #374151', margin: '0.4rem 0' }} />
+                    <div style={{ color: '#4b5563', marginBottom: '0.2rem', fontFamily: 'system-ui', letterSpacing: '0.07em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                      H matrix (imageToCard, px → mm)
+                    </div>
+                    <DiagRow label="   row 0" value={`[ ${hm.row0.join(',  ')} ]`} />
+                    <DiagRow label="   row 1" value={`[ ${hm.row1.join(',  ')} ]`} />
+                    <DiagRow label="   row 2" value={`[ ${hm.row2.join(',  ')} ]`} />
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

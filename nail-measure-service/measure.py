@@ -92,6 +92,36 @@ def calculate_width_from_mrr(
     return length_mm, width_mm, angle_deg, corners
 
 
+# ── Local scale ───────────────────────────────────────────────────────────────
+
+def scale_mm_per_px_at_point(H: np.ndarray, x_px: float, y_px: float) -> float:
+    """
+    Local isotropic scale (mm/px) of the homography at the given image pixel.
+
+    Uses the 2×2 Jacobian of H : (x_px, y_px) → (X_mm, Y_mm) evaluated at
+    the given point.  The square root of the absolute Jacobian determinant
+    gives the area-preserving scale factor in mm/px.
+
+    For a well-calibrated card homography this closely matches the value
+    returned by pixelsPerMmAt() in card-homography.ts (the TypeScript
+    Jacobian implementation).  Agreement confirms H is consistent between
+    the Python service and the Next.js bridge.
+    """
+    v = np.array([x_px, y_px, 1.0], dtype=np.float64)
+    w    = H[2] @ v                   # denominator
+    Xw   = float(H[0] @ v)            # H[0]·v  (= X * w)
+    Yw   = float(H[1] @ v)            # H[1]·v  (= Y * w)
+
+    # Quotient-rule partials: d/dx (X/w) = (h00*w - Xw*h20) / w²  etc.
+    dXdx = (H[0, 0] * w - Xw * H[2, 0]) / (w * w)
+    dXdy = (H[0, 1] * w - Xw * H[2, 1]) / (w * w)
+    dYdx = (H[1, 0] * w - Yw * H[2, 0]) / (w * w)
+    dYdy = (H[1, 1] * w - Yw * H[2, 1]) / (w * w)
+
+    J = np.array([[dXdx, dXdy], [dYdx, dYdy]], dtype=np.float64)
+    return float(math.sqrt(abs(np.linalg.det(J))))
+
+
 # ── Depth correction ──────────────────────────────────────────────────────────
 
 def depth_correct(width_mm_raw: float, h_mm: float, D_mm: float) -> float:
@@ -118,28 +148,57 @@ def measure_from_contour_px(
     H: np.ndarray,
     h_mm: float,
     D_mm: float,
+    nail_x: float | None = None,
+    nail_y: float | None = None,
 ) -> dict:
     """
     Full measurement pipeline from pixel contour.
 
     Steps:
-        1. contour_px  → mm DataFrame  (via H)
-        2. mm DataFrame → Shapely MRR  (width, length, angle)
-        3. MRR width    → depth correction
+        1. contour_px  → MRR in pixel space          (diagnostic only)
+        2. contour_px  → mm DataFrame  (via H)
+        3. mm DataFrame → Shapely MRR  (width, length, angle, corners_mm)
+        4. MRR width    → depth correction
+        5. Optional: local scale at nail click
+
+    Returns dict with all intermediate values for D4.8 diagnostics.
     """
+    # ── Step 1: pixel-space MRR (before H transform) ─────────────────────────
+    df_px = pd.DataFrame(contour_px, columns=["x", "y"])
+    length_px, width_px, _, corners_px = calculate_width_from_mrr(df_px, use_mm=False)
+
+    # ── Step 2–3: mm-space MRR (after H transform) ────────────────────────────
     df = contour_px_to_mm(contour_px, H)
-    length_raw, width_raw, angle_deg, corners = calculate_width_from_mrr(df, use_mm=True)
-    width_final = depth_correct(width_raw, h_mm, D_mm)
+    length_raw, width_raw, angle_deg, corners_mm = calculate_width_from_mrr(df, use_mm=True)
+
+    # ── Step 4: depth correction ──────────────────────────────────────────────
+    width_final  = depth_correct(width_raw, h_mm, D_mm)
     length_final = depth_correct(length_raw, h_mm, D_mm)
 
+    # ── Step 5: local scale at nail click ─────────────────────────────────────
+    scale_mm_per_px: float | None = None
+    if nail_x is not None and nail_y is not None:
+        scale_mm_per_px = scale_mm_per_px_at_point(H, nail_x, nail_y)
+
     return {
-        "width_mm": round(width_final, 4),
-        "mrr_width_raw_mm": round(width_raw, 4),
-        "mrr_length_mm": round(length_final, 4),
-        "mrr_angle_deg": round(angle_deg, 4),
-        "h_used_mm": h_mm,
-        "D_used_mm": D_mm,
-        "contour_px": contour_px,
+        # Final result
+        "width_mm":            round(width_final,  4),
+        # Pre-depth H-transformed width
+        "mrr_width_raw_mm":    round(width_raw,    4),
+        "mrr_length_mm":       round(length_final, 4),
+        "mrr_angle_deg":       round(angle_deg,    4),
+        # Pixel-space diagnostics
+        "mrr_width_px":        round(width_px,     2),
+        "mrr_length_px":       round(length_px,    2),
+        # Scale diagnostics
+        "scale_mm_per_px_at_click": round(scale_mm_per_px, 6) if scale_mm_per_px is not None else None,
+        # Parameters used
+        "h_used_mm":           h_mm,
+        "D_used_mm":           D_mm,
+        # Geometry (for overlay generation)
+        "contour_px":          contour_px,
+        "mrr_corners_mm":      corners_mm.tolist(),
+        "mrr_corners_px":      corners_px.tolist(),
     }
 
 

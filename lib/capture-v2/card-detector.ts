@@ -513,11 +513,16 @@ function tryOtsuBranch(
       // disabled it after the sensitivity test showed it produced
       // identical results to edge-margin alone on the 125-photo pilot.
 
-      if (polyArea > bestArea) {
-        bestArea = polyArea;
-        bestCorners = ordered;
-        bestNote = `otsu: invert=${invert} area_frac=${areaFrac.toFixed(3)} ratio=${ratio.toFixed(3)}`;
-      }
+      const ratioErr = Math.abs(ratio - CARD_TRUE_RATIO) / CARD_TRUE_RATIO;
+    const idealAreaFrac = 0.10;
+    const areaErr = Math.abs(Math.log(areaFrac / idealAreaFrac));
+    const score = ratioErr * 10 + areaErr;
+
+    if (bestCorners === null || score < bestArea) {
+      bestArea = score;
+      bestCorners = ordered;
+      bestNote = `otsu: invert=${invert} area_frac=${areaFrac.toFixed(3)} ratio=${ratio.toFixed(3)} score=${score.toFixed(3)}`;
+    }
     }
   }
 

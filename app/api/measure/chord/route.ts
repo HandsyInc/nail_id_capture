@@ -2,6 +2,95 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getFromR2 } from '@/lib/r2';
 
+// ---------------------------------------------------------------------------
+// D4.8 app-layer diagnostic helpers
+// ---------------------------------------------------------------------------
+
+/** Local mm/px scale of imageToCard H at an image pixel via Jacobian. */
+function scaleMmPerPxAt(H: number[][], xPx: number, yPx: number): number {
+  const w  = H[2][0]*xPx + H[2][1]*yPx + H[2][2];
+  const Xw = H[0][0]*xPx + H[0][1]*yPx + H[0][2];
+  const Yw = H[1][0]*xPx + H[1][1]*yPx + H[1][2];
+  const w2 = w * w;
+  const j00 = (H[0][0]*w - Xw*H[2][0]) / w2;
+  const j01 = (H[0][1]*w - Xw*H[2][1]) / w2;
+  const j10 = (H[1][0]*w - Yw*H[2][0]) / w2;
+  const j11 = (H[1][1]*w - Yw*H[2][1]) / w2;
+  return Math.sqrt(Math.abs(j00*j11 - j01*j10));
+}
+
+/** Apply imageToCard H to a single image pixel → {x_mm, y_mm}. */
+function applyH(H: number[][], xPx: number, yPx: number): { x: number; y: number } {
+  const w = H[2][0]*xPx + H[2][1]*yPx + H[2][2];
+  return {
+    x: (H[0][0]*xPx + H[0][1]*yPx + H[0][2]) / w,
+    y: (H[1][0]*xPx + H[1][1]*yPx + H[1][2]) / w,
+  };
+}
+
+/**
+ * Contour bounding-box analysis.
+ *
+ * Computes the pixel bbox of the contour, applies H to its four corners,
+ * and derives an empirical mm/px scale from the bbox extents.  This
+ * cross-checks the Jacobian: if they agree, H and contour coords are in
+ * the same pixel space.  If they disagree, the contour coords are likely
+ * in a different (e.g. downsampled) pixel space.
+ */
+function contourBboxDiag(
+  contour: [number, number][],
+  H: number[][],
+): {
+  bbox_px:               { minX: number; minY: number; maxX: number; maxY: number };
+  bbox_width_px:         number;
+  bbox_height_px:        number;
+  centroid_px:           { x: number; y: number };
+  bbox_mm:               { minX: number; minY: number; maxX: number; maxY: number };
+  bbox_width_mm:         number;
+  bbox_height_mm:        number;
+  bbox_scale_x_mm_per_px: number;   // empirical x-scale from bbox
+  bbox_scale_y_mm_per_px: number;   // empirical y-scale from bbox
+  jacobian_at_centroid:  number;    // Jacobian scale at contour centroid
+} | null {
+  if (!contour || contour.length === 0) return null;
+
+  const xs = contour.map(p => p[0]);
+  const ys = contour.map(p => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+
+  // Apply H to the four bbox corners and extract mm extents
+  const tl = applyH(H, minX, minY);
+  const tr = applyH(H, maxX, minY);
+  const bl = applyH(H, minX, maxY);
+  const br = applyH(H, maxX, maxY);
+
+  const mmXs = [tl.x, tr.x, bl.x, br.x];
+  const mmYs = [tl.y, tr.y, bl.y, br.y];
+  const minXmm = Math.min(...mmXs), maxXmm = Math.max(...mmXs);
+  const minYmm = Math.min(...mmYs), maxYmm = Math.max(...mmYs);
+
+  const bboxWidthPx  = maxX - minX;
+  const bboxHeightPx = maxY - minY;
+  const bboxWidthMm  = maxXmm - minXmm;
+  const bboxHeightMm = maxYmm - minYmm;
+
+  return {
+    bbox_px:               { minX, minY, maxX, maxY },
+    bbox_width_px:         bboxWidthPx,
+    bbox_height_px:        bboxHeightPx,
+    centroid_px:           { x: cx, y: cy },
+    bbox_mm:               { minX: minXmm, minY: minYmm, maxX: maxXmm, maxY: maxYmm },
+    bbox_width_mm:         bboxWidthMm,
+    bbox_height_mm:        bboxHeightMm,
+    bbox_scale_x_mm_per_px: bboxWidthPx  > 0 ? bboxWidthMm  / bboxWidthPx  : 0,
+    bbox_scale_y_mm_per_px: bboxHeightPx > 0 ? bboxHeightMm / bboxHeightPx : 0,
+    jacobian_at_centroid:  scaleMmPerPxAt(H, cx, cy),
+  };
+}
+
 /**
  * POST /api/measure/chord
  *
@@ -141,5 +230,60 @@ export async function POST(req: Request) {
 
   const result = await serviceRes.json();
 
-  return NextResponse.json({ captureImageId, ...result });
+  // ── D4.8 app-layer diagnostics ─────────────────────────────────────────
+  // Computed entirely from data already in this route — no service changes.
+  const H = capture.h_matrix as number[][];
+  const scaleMmPerPx = scaleMmPerPxAt(H, nail_x, nail_y);
+  const depthCorrectionFactor = (D_mm - h_mm) / D_mm;
+
+  // Service diagnostic fields — present after phase_3 chord.py D4.8 edit
+  const mrr_width_raw_mm: number | null =
+    typeof result.mrr_width_raw_mm === 'number' ? result.mrr_width_raw_mm : null;
+  const mrr_length_raw_mm: number | null =
+    typeof result.mrr_length_raw_mm === 'number' ? result.mrr_length_raw_mm : null;
+  const mrr_width_px: number | null =
+    typeof result.mrr_width_px === 'number' ? result.mrr_width_px : null;
+  const mrr_length_px: number | null =
+    typeof result.mrr_length_px === 'number' ? result.mrr_length_px : null;
+
+  // Implied pixel width cross-check: pre-depth mm ÷ local mm/px scale
+  const mrr_width_implied_px: number | null =
+    mrr_width_raw_mm !== null && scaleMmPerPx > 0
+      ? mrr_width_raw_mm / scaleMmPerPx
+      : null;
+
+  // ── Contour bounding-box cross-check ───────────────────────────────────
+  // Applies H to the contour pixel bbox to derive an empirical mm/px scale.
+  // If this matches the Jacobian, H and contour coords are in the same pixel
+  // space.  If they diverge (e.g. bbox_scale ≈ 0.050 vs Jacobian ≈ 0.072),
+  // the contour is in a downsampled space — root cause of the 160→8mm error.
+  const bboxDiag = contourBboxDiag(
+    (result.contour_px ?? []) as [number, number][],
+    H,
+  );
+
+  // H matrix for direct inspection
+  const h_matrix_diag = {
+    row0: (H[0] as number[]).map((v: number) => +v.toFixed(8)),
+    row1: (H[1] as number[]).map((v: number) => +v.toFixed(8)),
+    row2: (H[2] as number[]).map((v: number) => +v.toFixed(8)),
+  };
+
+  return NextResponse.json({
+    captureImageId,
+    ...result,
+    diag: {
+      scale_mm_per_px_at_click:  scaleMmPerPx,
+      depth_correction_factor:   depthCorrectionFactor,
+      h_used_mm:                 h_mm,
+      D_used_mm:                 D_mm,
+      mrr_width_raw_mm,
+      mrr_length_raw_mm,
+      mrr_width_px,
+      mrr_length_px,
+      mrr_width_implied_px,
+      bbox:                      bboxDiag,
+      h_matrix:                  h_matrix_diag,
+    },
+  });
 }
