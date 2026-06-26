@@ -17,6 +17,45 @@ import {
 } from '@/lib/measure/wz-geometry';
 
 // ---------------------------------------------------------------------------
+// Measurement Provenance — W(z) scaffold
+// ---------------------------------------------------------------------------
+//
+// When a W(z) accept route is built (future sprint), each accepted station
+// measurement should store MeasurementProvenance<Point> for both its left
+// and right sidewall placements:
+//
+//   import {
+//     type MeasurementProvenance,
+//     type ComputerProposal,
+//     buildPointProvenance,
+//   } from '@/lib/measure/provenance';
+//
+//   For purely manual measurements (current):
+//     T = Point
+//     method = 'MANUAL'   (no computer proposal; computerProposal = null)
+//
+//   When auto-detection is added (e.g. station edge-detect):
+//     T = Point
+//     method = 'STATION_EDGE_DETECT'
+//     computerProposal.value = auto-detected sidewall Point (px)
+//     computerProposal.score = edge contrast score
+//     founderValue           = the Point the founder accepted
+//     correctionMagnitude    = Euclidean px distance (proposal vs. accepted)
+//
+//   One SidewallProvenance per station per sidewall:
+//     type StationRecord = {
+//       station:       Station;
+//       leftPx:        Point;
+//       rightPx:       Point;
+//       leftProv:      MeasurementProvenance<Point>;   ← add when accept route built
+//       rightProv:     MeasurementProvenance<Point>;   ← add when accept route built
+//       widthPx:       number;
+//       widthMm:       number | null;
+//     };
+//
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 

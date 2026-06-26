@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getOrCreateArtist } from '@/lib/artist';
+import {
+  type MeasurementProvenance,
+  buildScalarProvenance,
+} from '@/lib/measure/provenance';
 
 /**
  * POST /api/measure/chord/accept
@@ -39,6 +43,17 @@ export type ChordMeasurementRecord = {
   contour_px:      [number, number][];
   mrr_corners_mm:  [number, number][] | null;
   nail_click_px:   { x: number; y: number };
+  /**
+   * Measurement provenance — the computer's SAM2 proposal vs. what the
+   * founder accepted, with attempt count.
+   *
+   * For chord, the founder cannot numerically override the service result;
+   * the correction signal is in provenance.attemptCount (retries before
+   * acceptance) rather than a value delta.
+   *
+   * Null for records created before provenance tracking was added (D4.x).
+   */
+  provenance:      MeasurementProvenance<number> | null;
   method:          'SAM2_FOUNDER_CLICK_CHORD';
   measuredAt:      string;
   acceptedBy:      string;        // artist.id
@@ -64,6 +79,7 @@ export async function POST(req: Request) {
     contour_px,
     mrr_corners_mm = null,
     nail_click_px,
+    attempt_count  = null,
   } = body as {
     captureImageId:  string;
     sessionId:       string;
@@ -73,6 +89,8 @@ export async function POST(req: Request) {
     contour_px:      [number, number][];
     mrr_corners_mm?: [number, number][];
     nail_click_px:   { x: number; y: number };
+    /** Number of service calls made before this accepted result. */
+    attempt_count?:  number | null;
   };
 
   // ── Validate required fields ────────────────────────────────────────────
@@ -102,10 +120,10 @@ export async function POST(req: Request) {
     );
   }
 
-  // Verify ownership: the image's session must belong to this artist.
+  // Verify ownership and fetch handsyFitId (needed if we must create a GP).
   const session = await prisma.captureSession.findFirst({
-    where: { id: sessionId, artistId: artist.id },
-    select: { id: true },
+    where:  { id: sessionId, artistId: artist.id },
+    select: { id: true, handsyFitId: true },
   });
 
   if (!session) {
@@ -117,6 +135,24 @@ export async function POST(req: Request) {
 
   const now = new Date().toISOString();
 
+  // Build provenance. For chord the computer always proposes via SAM2 on the
+  // founder's seed click, and the founder cannot numerically override — only
+  // retry. acceptedProposal = true when this was the first attempt.
+  const provenance = buildScalarProvenance(
+    {
+      value:      width_mm,
+      confidence: 'high',       // service result is always emitted at full confidence
+      score:      null,         // SAM2 mask quality score not yet surfaced to client
+      method:     'SAM2_CONTOUR',
+      extra:      {
+        length_mm,
+        angle_deg: angle_deg ?? null,
+      },
+    },
+    width_mm,
+    attempt_count,
+  );
+
   const record: ChordMeasurementRecord = {
     captureImageId,
     hand:           capture.hand,
@@ -127,51 +163,73 @@ export async function POST(req: Request) {
     contour_px,
     mrr_corners_mm: mrr_corners_mm ?? null,
     nail_click_px,
+    provenance,
     method:         'SAM2_FOUNDER_CLICK_CHORD',
     measuredAt:     now,
     acceptedBy:     artist.id,
     acceptedAt:     now,
   };
 
-  // ── Persistence decision ────────────────────────────────────────────────
-  // Try GeometryPackage first (isCurrent, linked to this session).
+  // ── Persistence: always write to GeometryPackage ───────────────────────
+  //
+  // Look for an existing current GeometryPackage for this session.
+  // If none exists (e.g. dev seeds, or sessions submitted before the
+  // submission flow pre-initialised the GP), create one automatically —
+  // creating a HandsyFit first if the session doesn't already have one.
+  //
+  // The CaptureImage.chordMeasurement fallback is intentionally removed:
+  // the transverse page (and all downstream geometry consumers) only read
+  // from GeometryPackage.widthData, so falling back silently was breaking
+  // the width → IC pipeline.
+
+  const key = `${capture.hand}_${capture.finger}`;
+
   const gp = await prisma.geometryPackage.findFirst({
-    where: { captureSessionId: sessionId, isCurrent: true },
+    where:   { captureSessionId: sessionId, isCurrent: true },
     orderBy: { version: 'desc' },
-    select: { id: true, widthData: true },
+    select:  { id: true, widthData: true },
   });
 
   if (gp) {
-    // Merge into GeometryPackage.widthData.chordMeasurements[HAND_FINGER]
     const existing = (gp.widthData as Record<string, unknown> | null) ?? {};
     const chordMeasurements: Record<string, ChordMeasurementRecord> =
       (existing.chordMeasurements as Record<string, ChordMeasurementRecord>) ?? {};
-
-    const key = `${capture.hand}_${capture.finger}`;
     chordMeasurements[key] = record;
 
     await prisma.geometryPackage.update({
       where: { id: gp.id },
-      data: { widthData: { ...existing, chordMeasurements } },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: { widthData: { ...existing, chordMeasurements } as any },
     });
 
-    return NextResponse.json({
-      persisted:  true,
-      location:   'geometry_package',
-      recordId:   gp.id,
-      key,
+    return NextResponse.json({ persisted: true, location: 'geometry_package', recordId: gp.id, key });
+  }
+
+  // No GeometryPackage yet — create one, provisioning a HandsyFit if needed.
+  let handsyFitId = session.handsyFitId ?? null;
+
+  if (!handsyFitId) {
+    const hf = await prisma.handsyFit.create({
+      data: { publicIdentifier: `hf-auto-${sessionId}` },
+    });
+    handsyFitId = hf.id;
+    await prisma.captureSession.update({
+      where: { id: sessionId },
+      data:  { handsyFitId },
     });
   }
 
-  // Fallback: CaptureImage.chordMeasurement
-  await prisma.captureImage.update({
-    where: { id: captureImageId },
-    data:  { chordMeasurement: record as unknown as object },
+  const newGp = await prisma.geometryPackage.create({
+    data: {
+      handsyFitId,
+      captureSessionId: sessionId,
+      version:          1,
+      isCurrent:        true,
+      pipelineVersion:  'founder-measure-v1',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      widthData: { chordMeasurements: { [key]: record } } as any,
+    },
   });
 
-  return NextResponse.json({
-    persisted:  true,
-    location:   'capture_image',
-    recordId:   captureImageId,
-  });
+  return NextResponse.json({ persisted: true, location: 'geometry_package', recordId: newGp.id, key });
 }

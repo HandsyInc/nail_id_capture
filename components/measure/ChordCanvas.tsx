@@ -105,6 +105,10 @@ export function ChordCanvas({ captureImageId, sessionId, imageUrl, onAccepted }:
   const [phase, setPhase] = useState<Phase>({ step: 'idle' });
   const [accepting, setAccepting] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  // Counts how many service calls were made before the founder accepted.
+  // 1 = accepted on first try. > 1 = founder retried (rejected earlier results).
+  // Sent to the accept route as provenance.attemptCount for training data.
+  const attemptCountRef = useRef(0);
 
   // ── Measure ──────────────────────────────────────────────────────────────
   const handleClick = useCallback(
@@ -112,6 +116,7 @@ export function ChordCanvas({ captureImageId, sessionId, imageUrl, onAccepted }:
       if (phase.step === 'loading' || accepting) return;
 
       const natural = toNaturalCoords(e);
+      attemptCountRef.current += 1;
       setPhase({ step: 'loading', clickNatural: natural });
 
       try {
@@ -158,6 +163,9 @@ export function ChordCanvas({ captureImageId, sessionId, imageUrl, onAccepted }:
           contour_px:     phase.result.contour_px,
           mrr_corners_mm: phase.result.mrr_corners_mm,
           nail_click_px:  phase.result.nail_click_used,
+          // Provenance: how many service calls were made before this accept.
+          // 1 = first try; > 1 means the founder rejected earlier proposals.
+          attempt_count:  attemptCountRef.current || 1,
         }),
       });
 
@@ -179,6 +187,7 @@ export function ChordCanvas({ captureImageId, sessionId, imageUrl, onAccepted }:
   const handleReset = useCallback(() => {
     setPhase({ step: 'idle' });
     setAccepting(false);
+    attemptCountRef.current = 0;
   }, []);
 
   // ── Derive display image src ──────────────────────────────────────────────
