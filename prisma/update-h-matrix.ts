@@ -80,9 +80,9 @@ import type { Point } from '../lib/capture-v2/cv-primitives';
 async function loadImageData(
   filePath: string,
 ): Promise<{ data: Uint8Array; width: number; height: number }> {
-  let sharp: typeof import('sharp');
+  let sharp: typeof import('sharp').default;
   try {
-    sharp = (await import('sharp')).default as unknown as typeof import('sharp');
+    sharp = (await import('sharp')).default;
   } catch {
     console.error(
       '\n⛔  sharp is not installed.\n' +
