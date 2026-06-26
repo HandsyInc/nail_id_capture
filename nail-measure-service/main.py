@@ -302,4 +302,9 @@ async def chord_width(
         "h_used_mm":                    result["h_used_mm"],
         "D_used_mm":                    result["D_used_mm"],
         "seg_message":                  seg_message,
+        # D4.8.6 diagnostic fields
+        "depth_correction_factor":      result["depth_correction_factor"],
+        "width_mm_sweep":               result["width_mm_sweep"],
+        "contour_bbox_px":              result["contour_bbox_px"],
+        "mrr_width_naive_mm":           result["mrr_width_naive_mm"],
     }

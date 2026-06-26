@@ -129,3 +129,23 @@ For testing on a physical mobile device:
    ngrok http 3000
    ```
 
+---
+
+## Measurement Pipeline — Decision Log
+
+### D4.8.6 — Width Accuracy Calibration (completed, no formula change)
+
+**Date:** 2026-06-26
+
+**Question:** Pipeline was producing widths ~0.6–0.75 mm larger than founder physical measurements on three fingers (Left Index, Middle, Ring). Is the pipeline over-measuring, or were the reference values wrong?
+
+**Diagnostics added:**
+- `depth_correction_factor` — explicit `(D−h)/D` multiplier in every response
+- `width_mm_sweep` — width at h = 18, 20, 22, 25 mm
+- `contour_bbox_px` — SAM2 mask bounding box in pixels
+- `mrr_width_naive_mm` — pixel MRR × local Jacobian scale (bypasses H→MRR path, isolates inflation source)
+
+**Finding:** The pipeline is not over-measuring. The original physical reference values were under-measured (caliper or eyeball error on curved nail surfaces). The diagnostic sweep confirmed the MRR short-axis is geometrically consistent with the homography scale at the click point; no systematic inflation in SAM2 contour, MRR definition, depth correction, or h assumption.
+
+**Decision:** Width formula unchanged. No correction factor applied. Current computed `width_mm` is the canonical ground truth going forward.
+

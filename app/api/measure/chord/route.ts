@@ -231,12 +231,11 @@ export async function POST(req: Request) {
   const result = await serviceRes.json();
 
   // ── D4.8 app-layer diagnostics ─────────────────────────────────────────
-  // Computed entirely from data already in this route — no service changes.
   const H = capture.h_matrix as number[][];
   const scaleMmPerPx = scaleMmPerPxAt(H, nail_x, nail_y);
-  const depthCorrectionFactor = (D_mm - h_mm) / D_mm;
 
-  // Service diagnostic fields — present after phase_3 chord.py D4.8 edit
+  // Service diagnostic fields — explicitly extracted with null fallbacks so
+  // they are guaranteed top-level even if the Python service is stale.
   const mrr_width_raw_mm: number | null =
     typeof result.mrr_width_raw_mm === 'number' ? result.mrr_width_raw_mm : null;
   const mrr_length_raw_mm: number | null =
@@ -252,11 +251,21 @@ export async function POST(req: Request) {
       ? mrr_width_raw_mm / scaleMmPerPx
       : null;
 
+  // ── D4.8.6 fields — explicitly extracted from Python service result ──────
+  // These come from measure.py → /api/v1/chord_width. Explicit extraction
+  // (rather than relying on ...result spread) makes them guaranteed top-level.
+  const depth_correction_factor: number | null =
+    typeof result.depth_correction_factor === 'number' ? result.depth_correction_factor : null;
+  const width_mm_sweep: Record<string, number> | null =
+    result.width_mm_sweep != null && typeof result.width_mm_sweep === 'object'
+      ? result.width_mm_sweep
+      : null;
+  const contour_bbox_px: number[] | null =
+    Array.isArray(result.contour_bbox_px) ? result.contour_bbox_px : null;
+  const mrr_width_naive_mm: number | null =
+    typeof result.mrr_width_naive_mm === 'number' ? result.mrr_width_naive_mm : null;
+
   // ── Contour bounding-box cross-check ───────────────────────────────────
-  // Applies H to the contour pixel bbox to derive an empirical mm/px scale.
-  // If this matches the Jacobian, H and contour coords are in the same pixel
-  // space.  If they diverge (e.g. bbox_scale ≈ 0.050 vs Jacobian ≈ 0.072),
-  // the contour is in a downsampled space — root cause of the 160→8mm error.
   const bboxDiag = contourBboxDiag(
     (result.contour_px ?? []) as [number, number][],
     H,
@@ -272,9 +281,14 @@ export async function POST(req: Request) {
   return NextResponse.json({
     captureImageId,
     ...result,
+    // ── D4.8.6 top-level diagnostic fields (explicit, not spread-dependent) ──
+    depth_correction_factor,
+    width_mm_sweep,
+    contour_bbox_px,
+    mrr_width_naive_mm,
+    // ── diag block (app-layer computed) ─────────────────────────────────────
     diag: {
       scale_mm_per_px_at_click:  scaleMmPerPx,
-      depth_correction_factor:   depthCorrectionFactor,
       h_used_mm:                 h_mm,
       D_used_mm:                 D_mm,
       mrr_width_raw_mm,

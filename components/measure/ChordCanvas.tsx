@@ -23,15 +23,15 @@ export type BboxDiag = {
 };
 
 export type ChordDiag = {
-  scale_mm_per_px_at_click: number;        // mm/px at nail click — H Jacobian
-  depth_correction_factor:  number;        // (D − h) / D
+  scale_mm_per_px_at_click: number;
+  depth_correction_factor?:  number | null; // moved to top-level in D4.8.6; kept here for back-compat
   h_used_mm:                number;
   D_used_mm:                number;
-  mrr_width_px:             number | null; // MRR short side in pixels, before H
-  mrr_length_px:            number | null; // MRR long  side in pixels, before H
-  mrr_width_raw_mm:         number | null; // MRR short side after H, before depth
-  mrr_length_raw_mm:        number | null; // MRR long  side after H, before depth
-  mrr_width_implied_px:     number | null; // mrr_width_raw_mm / scale (cross-check)
+  mrr_width_px:             number | null;
+  mrr_length_px:            number | null;
+  mrr_width_raw_mm:         number | null;
+  mrr_length_raw_mm:        number | null;
+  mrr_width_implied_px:     number | null;
   bbox:                     BboxDiag | null;
   h_matrix:                 { row0: number[]; row1: number[]; row2: number[] } | null;
 };
@@ -44,7 +44,12 @@ export type ChordResult = {
   contour_px:        [number, number][];
   mrr_corners_mm:    [number, number][];
   nail_click_used:   { x: number; y: number };
-  diag?:             ChordDiag;   // always present with current route.ts
+  diag?:             ChordDiag;
+  // D4.8.6 top-level diagnostic fields (from Python service via route.ts)
+  depth_correction_factor?: number | null;
+  width_mm_sweep?:          Record<string, number> | null;
+  contour_bbox_px?:         number[] | null;
+  mrr_width_naive_mm?:      number | null;
 };
 
 type Phase =
@@ -375,10 +380,22 @@ export function ChordCanvas({ captureImageId, sessionId, imageUrl, onAccepted }:
               )}
 
               {/* ④ depth correction */}
-              <DiagRow
-                label={`④ depth correction  ×(D−h)/D  =  (${phase.result.diag.D_used_mm}−${phase.result.diag.h_used_mm})/${phase.result.diag.D_used_mm}`}
-                value={`×${phase.result.diag.depth_correction_factor.toFixed(5)}`}
-              />
+              {(() => {
+                const dcf =
+                  typeof phase.result.depth_correction_factor === 'number'
+                    ? phase.result.depth_correction_factor
+                    : typeof phase.result.diag?.depth_correction_factor === 'number'
+                      ? phase.result.diag.depth_correction_factor
+                      : null;
+                const D = phase.result.diag?.D_used_mm ?? '?';
+                const h = phase.result.diag?.h_used_mm ?? '?';
+                return (
+                  <DiagRow
+                    label={`④ depth correction  ×(D−h)/D  =  (${D}−${h})/${D}`}
+                    value={dcf != null ? `×${dcf.toFixed(5)}` : '—'}
+                  />
+                );
+              })()}
 
               {/* ⑤ final */}
               <DiagRow

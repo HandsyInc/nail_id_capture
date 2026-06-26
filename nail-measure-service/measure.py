@@ -180,6 +180,28 @@ def measure_from_contour_px(
     if nail_x is not None and nail_y is not None:
         scale_mm_per_px = scale_mm_per_px_at_point(H, nail_x, nail_y)
 
+    # ── D4.8.6 diagnostics ────────────────────────────────────────────────────
+
+    # 1. Explicit depth correction multiplier
+    depth_correction_factor = (D_mm - h_mm) / D_mm
+
+    # 2. Width sweep: what width_mm would be at canonical h values (D fixed)
+    width_mm_sweep = {
+        h_val: round(depth_correct(width_raw, float(h_val), D_mm), 4)
+        for h_val in (18, 20, 22, 25)
+    }
+
+    # 3. Contour bounding box in pixels [xmin, ymin, xmax, ymax]
+    xs_px = [p[0] for p in contour_px]
+    ys_px = [p[1] for p in contour_px]
+    contour_bbox_px = [min(xs_px), min(ys_px), max(xs_px), max(ys_px)]
+
+    # 4. Naive mm estimate: pixel MRR short axis × local scale (no H→MRR path).
+    #    If naive < mrr_width_raw_mm the MRR-in-mm-space is inflating the result.
+    mrr_width_naive_mm: float | None = None
+    if scale_mm_per_px is not None:
+        mrr_width_naive_mm = round(width_px * scale_mm_per_px, 4)
+
     return {
         # Final result
         "width_mm":            round(width_final,  4),
@@ -199,6 +221,11 @@ def measure_from_contour_px(
         "contour_px":          contour_px,
         "mrr_corners_mm":      corners_mm.tolist(),
         "mrr_corners_px":      corners_px.tolist(),
+        # ── D4.8.6 diagnostic fields ──────────────────────────────────────────
+        "depth_correction_factor": round(depth_correction_factor, 6),
+        "width_mm_sweep":          width_mm_sweep,      # {18: mm, 20: mm, 22: mm, 25: mm}
+        "contour_bbox_px":         contour_bbox_px,     # [xmin, ymin, xmax, ymax]
+        "mrr_width_naive_mm":      mrr_width_naive_mm,  # px MRR × local scale (bypasses H→MRR)
     }
 
 
