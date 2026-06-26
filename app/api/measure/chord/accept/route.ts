@@ -198,7 +198,7 @@ export async function POST(req: Request) {
 
     await prisma.geometryPackage.update({
       where: { id: gp.id },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       data: { widthData: { ...existing, chordMeasurements } as any },
     });
 
@@ -226,7 +226,7 @@ export async function POST(req: Request) {
       version:          1,
       isCurrent:        true,
       pipelineVersion:  'founder-measure-v1',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       widthData: { chordMeasurements: { [key]: record } } as any,
     },
   });

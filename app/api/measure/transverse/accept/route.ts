@@ -212,7 +212,7 @@ export async function POST(req: Request) {
 
     await prisma.geometryPackage.update({
       where: { id: gp.id },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       data:  { icData: { ...existing, icMeasurements } as any },
     });
 
@@ -240,7 +240,7 @@ export async function POST(req: Request) {
       version:          1,
       isCurrent:        true,
       pipelineVersion:  'founder-measure-v1',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       icData: { icMeasurements: { [key]: record } } as any,
     },
   });
