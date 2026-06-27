@@ -155,8 +155,7 @@ model GeometryPackage {
   lengthData       Json?
   // Layer 4 — null until product scans arrive
   icData           Json?
-  hlData           Json?
-  apPercent        Float?
+  longitudinalData Json?
   rawVariables     Json?
   createdAt        DateTime @default(now())
 
